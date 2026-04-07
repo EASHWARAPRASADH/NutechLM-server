@@ -1,0 +1,5 @@
+{
+  "name": "NutechLM",
+  "description": "A minimal 3D-powered intelligence engine for deep research and writing.",
+  "requestFramePermissions": ["microphone"]
+}
