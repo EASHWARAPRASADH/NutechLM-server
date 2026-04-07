@@ -6,7 +6,7 @@
 
 ## Project Summary
 
-NutechLM is a high-performance, local-first research platform designed for deep document analysis, synthesis, and reasoning. It competes with platforms like NotebookLM but operates entirely on your hardware with no external API dependency.
+NutechLM is a high-performance, local-first research platform designed for deep document analysis, synthesis, and reasoning. It provides a secure, private, and fully customizable research environment that operates entirely on your hardware with no external API dependency.
 
 ### Prerequisites
 

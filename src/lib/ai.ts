@@ -6,7 +6,7 @@ env.useBrowserCache = true;
 
 // ═══════════════════════════════════════════════════════════════════════
 // NutechLM Neural Intelligence Engine — Production Grade
-// NotebookLM Competitor • Pure Local • No Cloud • No API Keys
+// Proprietary Research Platform • Pure Local • No Cloud • No API Keys
 // 
 // MODELS USED:
 //   Chat/Reasoning: qwen2.5:14b  (auto-downloaded if missing)
@@ -91,7 +91,7 @@ async function getVisionModel(): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// CHAT ENGINE — NotebookLM-Quality Responses with Source Citations
+// CHAT ENGINE — High-Fidelity Neural Responses with Source Citations
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function generateChatResponse(
