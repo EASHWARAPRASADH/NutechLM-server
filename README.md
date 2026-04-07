@@ -1,9 +1,5 @@
 # NutechLM — Neural Research Vault
 
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 ## Project Summary
 
 NutechLM is a high-performance, local-first research platform designed for deep document analysis, synthesis, and reasoning. It provides a secure, private, and fully customizable research environment that operates entirely on your hardware with no external API dependency.
