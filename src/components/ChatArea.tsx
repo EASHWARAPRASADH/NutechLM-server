@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
-import { generateChatResponse, generateSpeech, generateNoteTitle, generateChatSummary } from '../lib/ai';
+import { generateChatResponse, generateSpeech, generateNoteTitle, generateChatSummary, generateFollowUpQuestions } from '../lib/ai';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVoice } from '../hooks/useVoice';
 
@@ -42,6 +42,7 @@ function CitedText({ text, sources, onCitationClick, onCitationHover, onCitation
   return (
     <>
       {parts.map((part, i) => {
+        const uniqueKey = `part-${i}-${part.substring(0, 5)}`;
         const citationMatch = part.match(/^\[(\d+)\]$/);
         if (citationMatch) {
           const num = parseInt(citationMatch[1]);
@@ -49,7 +50,7 @@ function CitedText({ text, sources, onCitationClick, onCitationHover, onCitation
           const color = getCitationColor(num);
           return (
             <button
-              key={i}
+              key={uniqueKey}
               onClick={(e) => { e.stopPropagation(); onCitationClick?.(num); }}
               onMouseEnter={(e) => {
                 if (source) onCitationHover?.(source, e.currentTarget.getBoundingClientRect());
@@ -61,7 +62,7 @@ function CitedText({ text, sources, onCitationClick, onCitationHover, onCitation
             </button>
           );
         }
-        return <span key={i}>{part}</span>;
+        return <span key={uniqueKey}>{part}</span>;
       })}
     </>
   );
@@ -77,18 +78,23 @@ function CitedMarkdown({ content, sources, onCitationClick }: {
 }) {
   const [hoveredSource, setHoveredSource] = useState<Source | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ x: number, y: number } | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout>(undefined);
 
   const handleHover = (source: Source, rect: DOMRect) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     setHoveredSource(source);
     setPopoverPos({ x: rect.left + rect.width / 2, y: rect.top });
   };
 
   const handleLeave = () => {
-    setHoveredSource(null);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredSource(null);
+    }, 250); // slight delay allowing mouse to enter popover
   };
 
   const proxiedOnCitationClick = (n: number) => {
-    handleLeave(); // Close popover on click
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setHoveredSource(null); // Close popover on click
     onCitationClick?.(n);
   };
 
@@ -208,7 +214,13 @@ function CitedMarkdown({ content, sources, onCitationClick }: {
               transform: 'translateX(-50%) translateY(-100%)',
               zIndex: 1000
             }}
-            className="w-72 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow-2xl p-4 pointer-events-none"
+            onMouseEnter={() => { if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current); }}
+            onMouseLeave={() => handleLeave()}
+            onClick={() => {
+               const idx = sources.findIndex(s => s.id === hoveredSource.id);
+               if (idx >= 0) proxiedOnCitationClick(idx + 1);
+            }}
+            className="w-72 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow-2xl p-4 cursor-pointer hover:border-brand-primary/50 transition-colors pointer-events-auto"
           >
             <div className="flex items-center gap-2 mb-2">
               <div className="px-1.5 py-0.5 bg-brand-primary/10 text-brand-primary text-[9px] font-black uppercase tracking-widest rounded border border-brand-primary/20">
@@ -275,9 +287,10 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
   } = useStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSummarizingChat, setIsSummarizingChat] = useState(false);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
-  const [useHighThinking, setUseHighThinking] = useState(false);
+  const [isSummarizingChat, setIsSummarizingChat] = useState(false);
+  const [globalSummarizing, setGlobalSummarizing] = useState<{isActive: boolean, message: string}>({isActive: false, message: ''});
+  const [followUps, setFollowUps] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
@@ -286,8 +299,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
   const [feedbackText, setFeedbackText] = useState('');
   const [exportingId, setExportingId] = useState<string | null>(null);
 
-  const loadingStatuses = useHighThinking 
-    ? [
+  const loadingStatuses = [
         "Initializing Deep Thinking Mode [14B]...",
         "Engaging Neural Reasoning Cores...",
         "Executing Exhaustive Source Analysis...",
@@ -295,16 +307,14 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
         "Cross-Referencing Scientific Data...",
         "Finalizing High-Intelligence Response...",
         "Generating Pedagogical Synthesis..."
-      ]
-    : [
-        "Initializing Neural Link...",
-        "Executing Deep Research Protocol...",
-        "Ingesting expanded source context [65K]...",
-        "Mapping technical specifications...",
-        "Synthesizing cross-document insights...",
-        "Generating pedagogical response...",
-        "Finalizing highly-cited analysis..."
       ];
+
+  // Global Summarization listener
+  useEffect(() => {
+    const handler = ((e: CustomEvent) => setGlobalSummarizing(e.detail)) as EventListener;
+    window.addEventListener('nutech:chat-loading', handler);
+    return () => window.removeEventListener('nutech:chat-loading', handler);
+  }, []);
 
   // Load platform branding/settings
   useEffect(() => {
@@ -572,14 +582,13 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
     const startTime = performance.now();
 
     try {
-      setStreamingContent('');
       abortControllerRef.current = new AbortController();
       const response = await generateChatResponse(
         userMessage, 
         activeSources, 
         notebook.chatHistory,
-        (token) => setStreamingContent(prev => (prev || '') + token),
-        useHighThinking, 
+        (token) => setStreamingContent(prev => (prev === null ? '' : prev) + token),
+        undefined, 
         masterSources,
         abortControllerRef.current.signal
       );
@@ -587,6 +596,10 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
       
       setStreamingContent(null);
       await addChatMessage(notebook.id, { role: 'model', content: response });
+      
+      const newHistory = [...notebook.chatHistory, {role: 'user' as const, content: userMessage}, {role: 'model' as const, content: response}];
+      const questions = await generateFollowUpQuestions(newHistory);
+      setFollowUps(questions);
       
       // We'll use the last message id approach in render
       setInferenceTimings(prev => ({ ...prev, latest: elapsed }));
@@ -743,7 +756,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
-                key={msg.id}
+                key={msg.id && msg.id !== "" ? msg.id : `msg-${idx}-${msg.role}-${msg.content.substring(0, 10)}`}
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
@@ -894,6 +907,23 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
               </motion.div>
             ))
           )}
+          {globalSummarizing.isActive && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="flex justify-start"
+            >
+              <div className="bg-white dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800 rounded-3xl rounded-tl-sm px-6 py-5 flex items-center gap-3 shadow-sm">
+                <div className="flex gap-1.5">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <motion.span className="text-sm font-bold text-neutral-500 dark:text-neutral-400 min-w-[200px]">
+                  {globalSummarizing.message}
+                </motion.span>
+              </div>
+            </motion.div>
+          )}
           {streamingContent !== null ? (
             <motion.div
               layout
@@ -909,7 +939,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
                     <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 rounded-full bg-brand-primary" />
                   </div>
                   <span className="text-[10px] font-black uppercase tracking-widest opacity-70">
-                    {useHighThinking ? 'Deep Thinking Neural Link...' : 'Neural Link Active...'}
+                    Deep Thinking Neural Link (RAG Active)...
                   </span>
                 </div>
                 <div className="prose-override">
@@ -944,12 +974,36 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
             </motion.div>
           )}
         </AnimatePresence>
+          {followUps.length > 0 && notebook.chatHistory.length > 0 && !isLoading && !globalSummarizing.isActive && (
+             <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} className="flex flex-wrap gap-2 mt-4 justify-start">
+                <div className="w-full text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                   <Sparkles size={12} className="text-purple-500" />
+                   Suggested Follow-ups
+                </div>
+                {followUps.map((q, idx) => (
+                   <button 
+                      key={idx} 
+                      onClick={() => {
+                        setInput(q);
+                        setTimeout(() => {
+                           const form = document.getElementById('chat-form') as HTMLFormElement;
+                           if (form) form.requestSubmit();
+                        }, 50);
+                      }}
+                      className="px-4 py-2 bg-purple-50/50 dark:bg-purple-900/10 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-xl text-xs font-bold border border-purple-200 dark:border-purple-800 transition-colors text-left"
+                   >
+                      {q}
+                   </button>
+                ))}
+             </motion.div>
+          )}
         <div ref={messagesEndRef} />
         </div>
       </div>
 
       <div className="p-4 bg-white dark:bg-neutral-900 border-t border-neutral-100 dark:border-neutral-800 z-20 transition-colors duration-300">
         <form 
+          id="chat-form"
           onSubmit={handleSend} 
           className={`max-w-3xl mx-auto relative group transition-all duration-300 rounded-[1.5rem] border-2 shadow-sm ${
             isDraggingOver ? 'border-brand-primary bg-blue-50/20 dark:bg-brand-primary/10 scale-[1.02] ring-4 ring-brand-primary/10' : 'border-transparent'
@@ -997,18 +1051,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
               </AnimatePresence>
             </div>
           )}
-          <div className="flex items-center gap-2 mb-3 px-1">
-            <motion.button
-              whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-              type="button" onClick={() => setUseHighThinking(!useHighThinking)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm ${
-                useHighThinking ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-900/50' : 'bg-white dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700'
-              }`}
-            >
-              <Brain size={12} />
-              Deep Reasoning
-            </motion.button>
-          </div>
+          <div className="flex flex-col gap-3 px-1 mb-3">
           <div className="relative flex items-end gap-2 bg-neutral-100/80 dark:bg-neutral-800/80 rounded-[1.5rem] p-2 border border-transparent focus-within:border-neutral-300 dark:focus-within:border-neutral-600 focus-within:bg-white dark:focus-within:bg-neutral-800 transition-all shadow-sm focus-within:shadow-md">
             <motion.button
               whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
@@ -1044,8 +1087,9 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
               </motion.button>
             )}
           </div>
-        </form>
-      </div>
+        </div>
+      </form>
     </div>
-  );
+  </div>
+);
 }

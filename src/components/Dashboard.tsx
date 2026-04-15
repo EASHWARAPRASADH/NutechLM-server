@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Plus, Book, Trash2, Wind, LogOut, Search, Filter, Shield, User, Edit3, Globe } from 'lucide-react';
+import { Plus, Book, Trash2, Wind, LogOut, Search, Filter, Shield, User, Edit3, Globe, Upload, Camera } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import DarkModeToggle from './DarkModeToggle';
@@ -15,6 +15,10 @@ export default function Dashboard() {
   const [newTitle, setNewTitle] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'updated' | 'title' | 'sources'>('updated');
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState(currentUser?.name || '');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(currentUser?.avatarUrl || '');
+  const [isAvatarUploading, setIsAvatarUploading] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -127,6 +131,8 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-2">
+
+
               <DarkModeToggle />
               {isAdmin && (
                 <button 
@@ -150,6 +156,31 @@ export default function Dashboard() {
               >
                 <LogOut size={18} />
               </button>
+
+              <div className="w-px h-8 bg-neutral-200 dark:bg-neutral-800 mx-2" />
+
+              {!isGuest && currentUser && (
+                <button 
+                  onClick={() => {
+                    setProfileName(currentUser.name || '');
+                    setProfileAvatarUrl(currentUser.avatarUrl || '');
+                    setIsProfileOpen(true);
+                  }}
+                  className="flex items-center gap-4 pl-2 pr-1 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-[1.25rem] transition-all group"
+                >
+                  <div className="flex flex-col items-end hidden md:flex">
+                    <span className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-tight group-hover:text-brand-primary transition-colors">Welcome, {currentUser.name || 'Researcher'}</span>
+                    <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest leading-none">ID: {currentUser.email}</span>
+                  </div>
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-primary/20 to-purple-500/20 border-2 border-neutral-200 dark:border-neutral-700 flex items-center justify-center overflow-hidden shrink-0 shadow-xl group-hover:scale-105 transition-transform">
+                    {currentUser.avatarUrl ? (
+                      <img src={currentUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={24} className="text-brand-primary" />
+                    )}
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -191,6 +222,140 @@ export default function Dashboard() {
                     className="bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 px-6 py-2 rounded-xl disabled:opacity-50 font-medium hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors shadow-sm"
                   >
                     Create
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {isProfileOpen && !isGuest && currentUser && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+              className="bg-white dark:bg-neutral-900 p-8 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-neutral-200 dark:border-neutral-800"
+            >
+              <div className="flex items-center gap-4 mb-8">
+                 <div className="w-12 h-12 bg-blue-50 dark:bg-brand-primary/20 text-brand-primary rounded-[1.5rem] flex items-center justify-center">
+                   <User size={24} />
+                 </div>
+                 <div>
+                   <h2 className="text-2xl font-black text-neutral-900 dark:text-white uppercase tracking-tight">Identity Settings</h2>
+                   <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Update your platform presence</p>
+                 </div>
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                await useStore.getState().updateProfile({ name: profileName, avatarUrl: profileAvatarUrl });
+                setIsProfileOpen(false);
+              }}>
+                <div className="space-y-6 mb-8">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest ml-2">Display Name</label>
+                    <input
+                      type="text"
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      placeholder="E.g. Dr. Alan Grant"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-800 rounded-3xl py-4 px-6 text-sm font-bold focus:outline-none focus:ring-8 focus:ring-brand-primary/5 focus:border-brand-primary transition-all dark:text-white"
+                    />
+                  </div>
+                  
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest ml-2">Avatar Appearance</label>
+                        <span className="text-[9px] font-bold text-neutral-300 italic">Upload or link image</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-6 p-6 bg-neutral-50 dark:bg-neutral-800/50 rounded-[2rem] border border-neutral-100 dark:border-neutral-800">
+                        <div className="relative group shrink-0">
+                          <div className="w-20 h-20 rounded-2xl bg-white dark:bg-neutral-900 shadow-lg border-2 border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-center justify-center">
+                            {profileAvatarUrl ? (
+                              <img src={profileAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                            ) : (
+                              <User size={32} className="text-neutral-300" />
+                            )}
+                            {isAvatarUploading && (
+                               <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                               </div>
+                            )}
+                          </div>
+                          <label className="absolute -bottom-2 -right-2 p-2 bg-brand-primary text-white rounded-xl shadow-lg cursor-pointer hover:scale-110 transition-transform flex items-center justify-center">
+                             <Camera size={14} />
+                             <input 
+                                type="file" 
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={async (e) => {
+                                   const file = e.target.files?.[0];
+                                   if (!file) return;
+                                   setIsAvatarUploading(true);
+                                   const formData = new FormData();
+                                   formData.append('avatar', file);
+                                   try {
+                                      const token = localStorage.getItem('nutech-vault-token');
+                                      const res = await fetch('/api/auth/avatar', {
+                                         method: 'POST',
+                                         headers: { 'Authorization': `Bearer ${token}` },
+                                         body: formData
+                                      });
+                                      
+                                      if (!res.ok) {
+                                         const errorBody = await res.text();
+                                         throw new Error(`Server responded with ${res.status}: ${errorBody.substring(0, 100)}`);
+                                      }
+
+                                      const data = await res.json();
+                                      if (data.avatarUrl) {
+                                         setProfileAvatarUrl(data.avatarUrl);
+                                      }
+                                   } catch (err: any) {
+                                      console.error('Avatar upload failed:', err);
+                                      alert(`Upload Failed: ${err.message || 'Unknown Error'}`);
+                                   } finally {
+                                      setIsAvatarUploading(false);
+                                   }
+                                }}
+                             />
+                          </label>
+                        </div>
+
+                        <div className="flex-1 space-y-3">
+                           <div className="flex bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-1 shadow-sm">
+                              <input
+                                type="text"
+                                value={profileAvatarUrl}
+                                onChange={(e) => setProfileAvatarUrl(e.target.value)}
+                                placeholder="Paste image link here..."
+                                className="flex-1 bg-transparent px-4 py-2.5 text-xs font-bold focus:outline-none dark:text-white"
+                              />
+                           </div>
+                           <p className="text-[10px] text-neutral-400 font-medium px-2">Recommendation: 400x400 PNG or JPG</p>
+                        </div>
+                      </div>
+                    </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileOpen(false)}
+                    className="px-6 py-4 text-xs font-black uppercase tracking-widest text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-8 py-4 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl"
+                  >
+                    Save Identity
                   </button>
                 </div>
               </form>

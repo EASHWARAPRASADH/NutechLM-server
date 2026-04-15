@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { generateSourceSummary } from '../lib/ai';
+import { generateSourceSummary, generateConsolidatedSummary } from '../lib/ai';
 import axios from 'axios';
 
 export default function Sidebar({ notebook }: { notebook: Notebook }) {
@@ -51,11 +51,13 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
 
     setIsUploading(true);
     setUploadError(null);
+    setIsAdding(false);
 
     const filesArray = Array.from(files);
     
     try {
       const token = localStorage.getItem('nutech-vault-token');
+      const newlyUploaded = [];
       
       for (const file of filesArray) {
         setUploadProgress(0); // Reset for each file
@@ -64,7 +66,6 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
         const formData = new FormData();
         formData.append('file', file);
 
-        // Switch to Axios for upload progress
         const res = await axios.post('/api/upload', formData, {
           headers: { 'Authorization': `Bearer ${token}` },
           onUploadProgress: (progressEvent) => {
@@ -75,7 +76,7 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
 
         const data = res.data;
         
-        setUploadError(`Analyzing ${file.name}...`); // Phase 2
+        setUploadError(`Indexing ${file.name}...`); 
         
         await addSource(notebook.id, {
           title: data.title || file.name,
@@ -84,22 +85,32 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
           fileUrl: data.fileUrl
         });
         
+        newlyUploaded.push({ title: data.title || file.name, content: data.content });
+      }
+      
+      // Multi-document summary or single summary
+      if (newlyUploaded.length > 0) {
+        setUploadError(newlyUploaded.length > 1 ? "Synthesizing full document batch..." : "Generating intelligence summary...");
+        // Tell the chat area to show an active loading state!
+        window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: true, message: "Synthesizing Source Guide..." } }));
+        
         try {
-          const summary = await generateSourceSummary(data.title || file.name, data.content);
-          
-          // Automatic Chat Injection (Summary comes to center only)
-          await addChatMessage(notebook.id, {
-            role: 'model',
-            content: summary
-          });
+           if (newlyUploaded.length > 1) {
+              const consolidated = await generateConsolidatedSummary(newlyUploaded);
+              await addChatMessage(notebook.id, { role: 'model', content: consolidated });
+           } else {
+              const single = await generateSourceSummary(newlyUploaded[0].title, newlyUploaded[0].content);
+              await addChatMessage(notebook.id, { role: 'model', content: single });
+           }
         } catch (sumErr) {
-          console.error(`Auto-summary failed for ${file.name}:`, sumErr);
+           console.error("Auto-summary failed:", sumErr);
+        } finally {
+           window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: false } }));
         }
       }
       
       setUploadError(null);
       setUploadProgress(0);
-      setIsAdding(false);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -116,6 +127,7 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
 
     setIsUploading(true);
     setUploadError(null);
+    setIsAdding(false);
 
     try {
       const token = localStorage.getItem('nutech-vault-token');
@@ -149,7 +161,7 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
         console.error('Auto-summary failed:', sumErr);
       }
       
-      setIsAdding(false);
+      
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Failed to index URL');
     } finally {
@@ -315,6 +327,51 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
              <FilePlus size={14} className="text-brand-primary" />
              <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Upload Resources</span>
           </div>
+
+          {/* Inline Upload Progress (NotebookLM Style) */}
+          <AnimatePresence>
+            {isUploading && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 overflow-hidden"
+              >
+                <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30 space-y-3">
+                  <div className="flex justify-between items-end">
+                    <div className="flex items-center gap-2 text-blue-600 dark:text-brand-primary">
+                       <Loader2 className="animate-spin" size={14} />
+                       <span className="text-[9px] font-black uppercase tracking-widest">{uploadError || 'Synching Vault...'}</span>
+                    </div>
+                    {uploadProgress > 0 && <span className="text-[10px] font-black text-blue-600 dark:text-brand-primary">{uploadProgress}%</span>}
+                  </div>
+                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                     <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${uploadProgress || (isUploading ? 5 : 0)}%` }}
+                        transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+                        className="h-full bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.3)]"
+                     />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+            
+            {!isUploading && uploadError && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl flex items-center gap-2 border border-red-100 dark:border-red-900/30"
+              >
+                <AlertCircle size={14} />
+                <span className="text-[10px] font-bold">{uploadError}</span>
+                <button onClick={() => setUploadError(null)} className="ml-auto p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-full transition-colors">
+                  <X size={12} />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div className={`${viewMode === 'grid' ? 'grid grid-cols-2 gap-3' : 'space-y-3'}`}>
           <AnimatePresence mode="popLayout">
           {filteredSources.map((source) => (
@@ -444,33 +501,7 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
                   <button type="submit" disabled={isUploading} className="w-full bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white py-5 rounded-3xl font-black uppercase tracking-widest text-[11px] hover:bg-neutral-900 hover:text-white transition-all disabled:opacity-50">Scrape Intelligence</button>
                 </form>
 
-                {isUploading && (
-                  <div className="space-y-6">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex justify-between items-end">
-                        <div className="flex items-center gap-2 text-blue-600 dark:text-brand-primary">
-                           <Loader2 className="animate-spin" size={16} />
-                           <span className="text-[10px] font-black uppercase tracking-[0.2em]">{uploadError || 'Synching Vault...'}</span>
-                        </div>
-                        {uploadProgress > 0 && <span className="text-xs font-black text-blue-600 dark:text-brand-primary">{uploadProgress}%</span>}
-                      </div>
-                      <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden border border-neutral-200/50 dark:border-neutral-700/50">
-                         <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${uploadProgress || (isUploading ? 5 : 0)}%` }}
-                            transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
-                            className="h-full bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.4)]"
-                         />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {uploadError && (
-                  <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl flex items-center gap-3 border border-red-100 dark:border-red-900/30">
-                    <AlertCircle size={16} />
-                    <span className="text-xs font-bold">{uploadError}</span>
-                  </div>
-                )}
+
               </div>
             </motion.div>
           </div>

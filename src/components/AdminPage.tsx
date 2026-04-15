@@ -566,11 +566,12 @@ export default function AdminPage() {
                       onSubmit={async (e) => {
                         e.preventDefault();
                         const form = e.target as any;
+                        const name = form.username.value;
                         const email = form.email.value;
                         const pass = form.password.value;
                         const role = form.role.value as any;
                         try {
-                          await registerUser(email, pass, role);
+                          await registerUser(name, email, pass, role);
                           setRegistrationStatus('success');
                           form.reset();
                           setTimeout(() => setRegistrationStatus('idle'), 3000);
@@ -592,6 +593,10 @@ export default function AdminPage() {
                           </motion.div>
                         )}
                       </AnimatePresence>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest ml-2">Full Name / Profile Name</label>
+                        <input name="username" type="text" required className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-800 rounded-3xl py-5 px-6 text-sm font-bold focus:outline-none focus:ring-8 focus:ring-brand-primary/5 focus:border-brand-primary transition-all dark:text-white" placeholder="Dr. Sarah Connor" />
+                      </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest ml-2">Email ID</label>
                         <input name="email" type="email" required className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-800 rounded-3xl py-5 px-6 text-sm font-bold focus:outline-none focus:ring-8 focus:ring-brand-primary/5 focus:border-brand-primary transition-all dark:text-white" placeholder="researcher@nutech.com" />
@@ -636,8 +641,8 @@ export default function AdminPage() {
                             <tr key={u.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors group">
                               <td className="py-7 px-10">
                                 <div className="flex flex-col gap-1">
-                                  <span className="font-bold text-neutral-900 dark:text-white text-base">{u.email}</span>
-                                  <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest font-bold">ID: {u.id.toUpperCase()}</span>
+                                  <span className="font-bold text-neutral-900 dark:text-white text-base">{u.name || 'Unnamed Researcher'}</span>
+                                  <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest font-bold">{u.email}</span>
                                 </div>
                               </td>
                               <td className="py-7 px-10">

@@ -29,10 +29,11 @@ interface AppState {
   login: (email: string, pass: string) => Promise<'success' | 'needs_reset' | false>;
   logout: () => void;
   updatePassword: (newPass: string, neverExpire?: boolean) => Promise<void>;
+  updateProfile: (profile: { name?: string; avatarUrl?: string }) => Promise<void>;
   toggleDarkMode: () => void;
   
   fetchUsers: () => Promise<void>;
-  registerUser: (email: string, pass: string, role: 'admin' | 'user') => Promise<void>;
+  registerUser: (name: string, email: string, pass: string, role: 'admin' | 'user') => Promise<void>;
   resetUserPassword: (id: string) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
 
@@ -210,6 +211,12 @@ export const useStore = create<AppState>((set, get) => ({
     set({ currentUser: res.data });
   },
 
+  updateProfile: async (profile) => {
+    await api.put('/auth/profile', profile);
+    const res = await api.get('/auth/me');
+    set({ currentUser: res.data });
+  },
+
   fetchUsers: async () => {
     try {
       const res = await api.get('/users');
@@ -219,8 +226,8 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  registerUser: async (email, pass, role) => {
-    await api.post('/auth/register', { email, password: pass, role });
+  registerUser: async (name, email, pass, role) => {
+    await api.post('/auth/register', { name, email, password: pass, role });
     get().fetchUsers();
   },
 
@@ -248,7 +255,8 @@ export const useStore = create<AppState>((set, get) => ({
             ...newNb, 
             sources: existing.sources.length > 0 ? existing.sources : newNb.sources,
             notes: existing.notes.length > 0 ? existing.notes : newNb.notes,
-            chatHistory: existing.chatHistory.length > 0 ? existing.chatHistory : newNb.chatHistory
+            chatHistory: existing.chatHistory.length > 0 ? existing.chatHistory : newNb.chatHistory,
+            selectedSourceIds: existing.selectedSourceIds || []
           } : newNb;
         })
       }));
@@ -262,9 +270,13 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await api.get(`/notebooks/${id}`);
       const mapped = mapNotebook(res.data);
       set((state) => {
-        const exists = state.notebooks.some(nb => nb.id === id);
-        if (exists) {
-          return { notebooks: state.notebooks.map(nb => nb.id === id ? mapped : nb) };
+        const existing = state.notebooks.find(nb => nb.id === id);
+        if (existing) {
+          return { 
+            notebooks: state.notebooks.map(nb => 
+              nb.id === id ? { ...mapped, selectedSourceIds: existing.selectedSourceIds } : nb
+            ) 
+          };
         } else {
           return { notebooks: [...state.notebooks, mapped] };
         }

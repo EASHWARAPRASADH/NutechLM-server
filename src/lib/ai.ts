@@ -1,30 +1,28 @@
 import { useStore } from '../store';
 import { pipeline, env } from '@xenova/transformers';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
 // ═══════════════════════════════════════════════════════════════════════
 // NutechLM Neural Intelligence Engine — Production Grade
-// Proprietary Research Platform • Pure Local • No Cloud • No API Keys
-// 
-// MODELS USED:
-//   Chat/Reasoning: qwen2.5:14b  (auto-downloaded if missing)
-//   Vision/OCR:     qwen2.5vl:7b (auto-downloaded if missing)
-//
-// These are the BEST local models for an M4 Pro Mac.
-// No model switching. No options. Always the best.
+// Supports Local (Ollama) and Cloud (Gemini 1.5 Flash)
 // ═══════════════════════════════════════════════════════════════════════
 
-const OLLAMA_URL = 'http://localhost:11434';
+const OLLAMA_URL = '/api/ollama';
 
 // ── THE BEST Models — Period ──
-const CHAT_MODEL = 'qwen2.5:14b';
+const CHAT_MODEL = 'llama3.1:latest';
 const VISION_MODEL = 'qwen2.5vl:7b';
 
+// Gemini Cloud Configuration
+const GEMINI_API_KEY = (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any).env?.GEMINI_API_KEY;
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+
 // ── Fallbacks ONLY if best model fails to load ──
-const CHAT_FALLBACKS = ['qwen2.5:7b', 'mistral:7b', 'llama3.1:8b', 'llama3:8b'];
-const VISION_FALLBACKS = ['qwen2.5vl', 'llava:13b', 'llava:7b', 'llava'];
+const CHAT_FALLBACKS = ['llama3.1:latest', 'llama3:8b', 'llama3.2:latest', 'mistral:7b'];
+const VISION_FALLBACKS = ['qwen2.5vl:7b', 'llava:latest', 'llava:13b', 'llava:7b'];
 
 let resolvedChatModel: string | null = null;
 let resolvedVisionModel: string | null = null;
@@ -77,7 +75,7 @@ async function ensureModel(preferred: string, fallbacks: string[]): Promise<stri
 
 async function getChatModel(): Promise<string> {
   const mode = useStore.getState().platformSettings.aiModelMode || '14b';
-  const preferred = mode === '14b' ? CHAT_MODEL : 'qwen2.5:7b';
+  const preferred = mode === '14b' ? CHAT_MODEL : 'llama3:8b';
   
   if (!resolvedChatModel || !resolvedChatModel.includes(mode)) {
     resolvedChatModel = await ensureModel(preferred, CHAT_FALLBACKS);
@@ -94,6 +92,84 @@ async function getVisionModel(): Promise<string> {
 // CHAT ENGINE — High-Fidelity Neural Responses with Source Citations
 // ═══════════════════════════════════════════════════════════════════════
 
+let embeddingPipeline: any = null;
+
+async function getEmbeddingPipeline() {
+  if (!embeddingPipeline) {
+    console.log('[NutechLM] Initializing Neural Semantic Engine (RAG)...');
+    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+  }
+  return embeddingPipeline;
+}
+
+function chunkText(text: string, maxTokens: number = 300): string[] {
+  const words = text.split(/\s+/);
+  const chunks = [];
+  let currentChunk = [];
+  for (const word of words) {
+    currentChunk.push(word);
+    if (currentChunk.length >= maxTokens) {
+      chunks.push(currentChunk.join(' '));
+      currentChunk = [];
+    }
+  }
+  if (currentChunk.length > 0) chunks.push(currentChunk.join(' '));
+  return chunks;
+}
+
+function cosineSimilarity(vecA: number[], vecB: number[]) {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// In-memory embedding cache: Map<SourceId, { chunk: string, embedding: number[] }[]>
+const embeddingCache = new Map<string, { chunk: string, embedding: number[] }[]>();
+
+async function getSemanticChunks(sources: any[], query: string, topK: number = 15) {
+  if (sources.length === 0) return [];
+  const extractor = await getEmbeddingPipeline();
+  
+  // 1. Embed Query
+  const queryOut = await extractor(query, { pooling: 'mean', normalize: true });
+  const queryEmbed = Array.from(queryOut.data) as number[];
+
+  const allChunks = [];
+  
+  // 2. Embed Sources (cached)
+  for (const source of sources) {
+    const sourceId = source.id || source.title; 
+    if (!embeddingCache.has(sourceId)) {
+      const chunks = chunkText(source.content);
+      const cachedData = [];
+      for (const chunk of chunks) {
+         try {
+           const out = await extractor(chunk, { pooling: 'mean', normalize: true });
+           cachedData.push({ chunk, embedding: Array.from(out.data) as number[] });
+         } catch(e) { console.warn("Embed err", e); }
+      }
+      embeddingCache.set(sourceId, cachedData);
+    }
+    
+    // Evaluate similarity
+    const cached = embeddingCache.get(sourceId) || [];
+    for (const c of cached) {
+       const score = cosineSimilarity(queryEmbed, c.embedding);
+       allChunks.push({ source, chunk: c.chunk, score });
+    }
+  }
+  
+  // 3. Sort and pick top K
+  return allChunks.sort((a, b) => b.score - a.score).slice(0, topK);
+}
+
 export async function generateChatResponse(
   prompt: string,
   sources: { id?: string; title: string; content: string; type: string }[],
@@ -108,23 +184,34 @@ export async function generateChatResponse(
   const globalSources = masterSources.map(s => ({ ...s, origin: 'GLOBAL INTELLIGENCE ASSET' }));
   const allSources = [...notebookSources, ...globalSources];
 
-  // OPTIMIZATION: Truncate source blocks if they exceed safety limits (~65,000 characters for Deep Research)
-  const rawSourceBlocks = allSources.map((s, i) => {
-    const num = i + 1;
-    const content = s.content.length > 25000 ? s.content.substring(0, 25000) + '... [TRUNCATED]' : s.content;
-    const origin = (s as any).origin;
-    return `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SOURCE [${num}]: (${origin}) "${s.title}"
+  // Perform Semantic RAG (NotebookLM style memory)
+  const topChunks = await getSemanticChunks(allSources, prompt, 15);
+  
+  // Group by source to format citations mapped correctly
+  const chunksBySourceId = new Map<string, { source: any, text: string[] }>();
+  for (const tc of topChunks) {
+     const id = tc.source.id || tc.source.title;
+     if (!chunksBySourceId.has(id)) chunksBySourceId.set(id, { source: tc.source, text: [] });
+     chunksBySourceId.get(id)!.text.push(tc.chunk);
+  }
+
+  // Build the raw source blocks using the original sources array indexes
+  let rawSourceBlocks = "";
+  for (let i = 0; i < allSources.length; i++) {
+     const s = allSources[i] as any;
+     const id = s.id || s.title;
+     if (chunksBySourceId.has(id)) {
+        const data = chunksBySourceId.get(id)!;
+        const combinedText = data.text.join('\n\n[...] ');
+        rawSourceBlocks += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE [${i + 1}]: (${s.origin}) "${s.title}"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${content}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-  }).join('\n\n');
+${combinedText}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+     }
+  }
 
-  // Hard limit for global context stability
-  const sourceBlocks = rawSourceBlocks.length > 65000 ? rawSourceBlocks.substring(0, 65000) + '\n\n[Additional source content truncated for system stability]' : rawSourceBlocks;
-
-  const systemPrompt = useHighThinking
-? `You are NutechLM Deep Research Engine — a world-class scientific analyst in MAXIMUM INTELLIGENCE mode.
+  const finalSystemPrompt = `You are NutechLM Deep Research Engine — a world-class scientific analyst in MAXIMUM INTELLIGENCE mode.
 
 ## SOURCE PRIORITY PROTOCOL (CRITICAL)
 - **Priority 1: General/Technical Standards** — If the question is about general engineering, standards (IEC, DIN, ISO), or theoretical concepts, prioritize **GLOBAL INTELLIGENCE ASSETS**.
@@ -133,7 +220,8 @@ ${content}
 
 ## CITATION RULES (HIGHEST PRIORITY)
 - You MUST cite EVERY fact, number, specification, date, and claim from sources.
-- Citation format: place the source number in square brackets [1], [2].
+- Citation format: place the source number INLINE in square brackets [1], [2].
+- DO NOT generate a "References", "Bibliography", or "Works Cited" section at the end of your response.
 - NEVER write "According to source 1". Just state the fact and cite.
 - If information is NOT in any source, say: "This is not covered in the provided sources."
 - Every paragraph MUST contain at least 2-3 citations.
@@ -155,43 +243,55 @@ ${content}
 - Include all dimensions and tolerances with units (e.g., \`0.34mm²\`, \`24V DC\`).
 - Cite all standards: IEC, DIN, EN, ISO.
 
-## REFERENCE SOURCES:
-${sourceBlocks || 'No sources loaded yet. Answer using general knowledge and clearly state this.'}
+## RELEVANT RETRIEVED SOURCES (SEMANTIC MATCHES):
+${rawSourceBlocks || 'No sources loaded yet. State that you require documents to be uploaded.'}
 
-You are in DEEP THINKING mode. Begin now.`
+## STRICT ANTI-HALLUCINATION PROTOCOL (CRITICAL)
+- You MUST ONLY base your answer on the content provided in the sources above.
+- If the required information is NOT present in the provided sources, you MUST explicitly state: "Based on the provided documents, there is no information regarding this topic."
+- If the provided source text contains its own "References", "Bibliography", or citation list, you MUST IGNORE IT. Do NOT copy, list, or output the document's own bibliography.
+- Do NOT use external knowledge. Do NOT invent data. Focus purely on extracting and analyzing the functional content of the uploaded documents.
 
-: `You are NutechLM, a world-class Pedagogical Specialist and Research Teacher.
+You are in DEEP THINKING mode. Begin now.`;
 
-## SOURCE PRIORITY PROTOCOL
-- **Global Assets**: Use for baseline knowledge and industrial standards.
-- **User Research**: Use for specific user context, uploaded files, and personal notes.
-- **Teaching Goal**: Explain how global knowledge applies to the user's specific research.
-
-## TEACHING STYLE
-- EXPLAIN everything as if the user is a complete beginner.
-- Be detailed: 5-7 comprehensive paragraphs.
-- Use **bold** for key terms.
-- EVERY fact MUST have an inline citation: [1], [2], [3]
-
-## FORMATTING
-- **Bold** key terms. \`Inline code\` for technical values. ### Headers for sections.
-- | Tables | For | Data |
-
-## REFERENCE SOURCES:
-${sourceBlocks || 'No sources loaded yet. Answer using general knowledge and clearly state this.'}
-
-Begin your response now.`;
-
-  const finalSystemPrompt = systemPrompt;
-
-  // When Deep Thinking is active, wrap the user's question with length enforcement
-  const finalPrompt = useHighThinking 
-    ? `${prompt}
+  const finalPrompt = `${prompt}
 
 ---
-REMINDER: You are in DEEP THINKING mode. Write at least 1000 words. Include tables, glossary, and heavy citations after every technical fact. Do not stop early.`
-    : prompt;
+REMINDER: You are in DEEP THINKING mode. Write at least 1000 words. Include tables, glossary, and heavy inline citations after every technical fact. DO NOT generate a References or Bibliography list. Do not stop early.`;
 
+  // ── CLOUD MODE: Gemini 1.5 Flash ──
+  if (genAI) {
+    try {
+      const geminiModel = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: finalSystemPrompt
+      });
+
+      const chat = geminiModel.startChat({
+        history: history.slice(-12).map(msg => ({
+          role: msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        }))
+      });
+
+      const result = await chat.sendMessageStream(finalPrompt);
+      let fullText = '';
+      
+      for await (const chunk of result.stream) {
+        if (abortSignal?.aborted) break;
+        const chunkText = chunk.text();
+        fullText += chunkText;
+        if (onToken) onToken(chunkText);
+      }
+
+      return fullText || 'Thinking...';
+    } catch (err: any) {
+      console.warn('[NutechLM] Gemini Engine failed, falling back to local Ollama:', err.message);
+      // Fall through to Ollama
+    }
+  }
+
+  // ── LOCAL MODE: Ollama ──
   const messages = [
     { role: 'system', content: finalSystemPrompt },
     ...history.slice(-12).map(msg => ({
@@ -209,14 +309,14 @@ REMINDER: You are in DEEP THINKING mode. Write at least 1000 words. Include tabl
         body: JSON.stringify({
           model,
           messages,
-          stream: true, // ENABLE STREAMING
+          stream: true,
           options: {
-            temperature: useHighThinking ? 0.3 : 0.4,
-            num_predict: useHighThinking ? 16384 : 4096,
-            num_ctx: 16384, 
+            temperature: 0.3,
+            num_predict: 16384,
+            num_ctx: 32768, 
             top_k: 40,
             top_p: 0.9,
-            repeat_penalty: useHighThinking ? 1.2 : 1.25,
+            repeat_penalty: 1.2,
             num_gpu: -1,
             low_vram: true
           }
@@ -233,12 +333,14 @@ REMINDER: You are in DEEP THINKING mode. Write at least 1000 words. Include tabl
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
+      let lineBuffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -250,7 +352,7 @@ REMINDER: You are in DEEP THINKING mode. Write at least 1000 words. Include tabl
               if (onToken) onToken(token);
             }
           } catch (e) {
-            // Incomplete JSON chunk, skip or handle partially
+            console.warn("Failed to parse partial line:", line);
           }
         }
       }
@@ -304,6 +406,27 @@ FORMAT:
 
 [Full transcription with markdown formatting]`;
 
+  // ── CLOUD MODE: Gemini 1.5 Flash ──
+  if (genAI) {
+    try {
+      const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await geminiModel.generateContent([
+        prompt,
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: "image/jpeg" // Multer handles varied types, but Gemini works best with standard hints
+          }
+        }
+      ]);
+      return result.response.text().trim() || '';
+    } catch (err) {
+      console.warn('[NutechLM] Gemini Vision failed, falling back to local vision:', err);
+      // Fall through to Ollama
+    }
+  }
+
+  // ── LOCAL MODE: Ollama ──
   const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -481,7 +604,8 @@ export async function generateSourceSummary(title: string, content: string): Pro
   
   Use **bold** for key terms and maintain a professional, academic tone. Cite the document as [1] for specific info.`;
 
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+  try {
+  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -492,9 +616,17 @@ export async function generateSourceSummary(title: string, content: string): Pro
     })
   });
   
-  if (!res.ok) return `Failed to summarize: ${title}`;
-  const data = await res.json();
+  if (!response.ok) {
+     throw new Error(`Source Synthesis Error: ${response.status} ${response.statusText}`);
+  }
+  
+  const data = await response.json();
+  if (data.error) throw new Error(data.error);
   return data.message?.content || `No summary available for ${title}`;
+} catch (err: any) {
+  console.error(err);
+  return `Summary failed for ${title}: ${err.message || 'Connection error'}`;
+}
 }
 
 export async function generateChatSummary(
@@ -541,4 +673,117 @@ ${chatText}` }],
 
 export async function processSource(title: string, content: string): Promise<{ title: string; content: string }> {
   return { title, content };
+}
+
+export async function generateConsolidatedSummary(sources: { title: string; content: string }[], onToken?: (t: string) => void): Promise<string> {
+  const model = await getChatModel();
+  const text = sources.map((s, i) => `── Document ${i+1}: "${s.title}" ──\n${s.content.substring(0, 12000)}`).join('\n\n');
+  
+  const systemPrompt = `You are NutechLM, responsible for creating a "Consolidated Source Guide" matching NotebookLM's Audio Overview style.
+Analyze these newly uploaded documents and write a highly detailed, unified synthesis of ALL of them combined.
+
+# Consolidated Intelligence Report
+## Executive Synthesis
+(A powerful, 3-4 paragraph opening that merges all documents into a single cohesive narrative. Analyze the patterns, connections, and overarching purpose of the entire document set.)
+
+## Primary Research Pillars
+(Identify the 3-5 core technical or thematic pillars discovered across the documents. Focus on merged data, cross-referenced specifications, and technical patterns rather than listing per document.)
+
+## Technical Specifications & Standards
+(Extract and merge all critical technical data, part numbers, and standards into a unified analysis.)
+
+## Critical Insights & Takeaways
+(A final synthesis of what these documents mean when taken as a whole.)
+
+Use **bold** for key terms. Avoid listing findings document-by-document; instead, merge all intelligence into a singular, high-level technical report.`;
+
+  try {
+     const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Please consolidate:\n\n${text}` }],
+          stream: true,
+          options: { temperature: 0.2, num_predict: 4096, num_ctx: 32768, top_k: 40, top_p: 0.9, repeat_penalty: 1.15 }
+        })
+     });
+     
+      if (!response.ok) {
+        throw new Error(`Intelligence Synthesis Error: ${response.status} ${response.statusText}`);
+      }
+      
+      if (!response.body) throw new Error('No intelligence stream received');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let lineBuffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const json = JSON.parse(line);
+            if (json.error) {
+               fullText += `(Neural Interface Error: ${json.error}) `;
+            }
+            if (json.message?.content) {
+              fullText += json.message.content;
+              if (onToken) onToken(json.message.content);
+            }
+          } catch(e) {}
+        }
+      }
+      return fullText || 'Summary Generation Complete (Note: AI returned an empty response).';
+  } catch (err: any) {
+      console.error(err);
+      return `Synthesis failed: ${err.message || 'Check local model connection'}`;
+  }
+}
+
+export async function generateFollowUpQuestions(
+  chatHistory: { role: 'user' | 'model'; content: string }[]
+): Promise<string[]> {
+  const model = await getChatModel();
+  const recentTexts = chatHistory.slice(-2).map(m => `${m.role.toUpperCase()}: ${m.content.substring(0, 1000)}`).join('\n\n');
+  
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user', 
+          content: `Based on this recent conversation, generate exactly 3 short, thought-provoking follow-up questions the user might want to ask next to dive deeper.
+Return ONLY a valid JSON array of 3 strings. Example: ["How does X work?", "What is the cost of Y?", "Can you explain Z?"]
+
+CONVERSATION:
+${recentTexts}
+
+OUTPUT (JSON ARRAY ONLY):`
+        }],
+        stream: false,
+        options: { temperature: 0.4, num_predict: 150 }
+      })
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const content = data.message?.content || "";
+    const match = content.match(/\[(.*?)\]/s);
+    if (match) {
+       const arrayStr = '[' + match[1] + ']';
+       const arr = JSON.parse(arrayStr);
+       if (Array.isArray(arr) && arr.length > 0) return arr.slice(0, 3);
+    }
+    return [];
+  } catch(e) {
+    return [];
+  }
 }
