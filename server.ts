@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import { createWorker } from 'tesseract.js';
 import { transcribeImageBest } from './src/lib/ai';
 import { fileURLToPath } from 'url';
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,8 +22,6 @@ config();
 
 const app = express();
 app.use(express.json());
-
-config(); 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'nutech-neural-vault-secret-2026';
 
@@ -39,8 +38,6 @@ async function ensureDb() {
     }
   }
 }
-
-const app = express();
 
 // --- Lazy Init Middleware ---
 app.use(async (req, res, next) => {
@@ -130,15 +127,19 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
     res.json({
       token,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      needsPasswordReset: user.needs_password_reset === 1,
-      passwordNeverExpires: user.password_never_expires === 1,
-      passwordUpdatedAt: user.password_updated_at
-    }
-  });
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        needsPasswordReset: user.needs_password_reset === 1,
+        passwordNeverExpires: user.password_never_expires === 1,
+        passwordUpdatedAt: user.password_updated_at
+      }
+    });
+  } catch (error: any) {
+    console.error('[AUTH] Login logic error:', error);
+    res.status(500).json({ error: 'Login service momentarily unavailable' });
+  }
 });
 
 app.post('/api/auth/register', authenticateToken, async (req: any, res) => {
@@ -280,10 +281,8 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
 
     let content = '';
     if (mimetype === 'application/pdf') {
-      const parser = new PDFParse({ data: fileBuffer });
-      const result = await parser.getText();
-      content = result.text;
-      await parser.destroy();
+      const data = await pdf(fileBuffer);
+      content = data.text;
     } else if (mimetype.startsWith('image/')) {
       content = await transcribeImageBest(`data:${mimetype};base64,${fileBuffer.toString('base64')}`);
       if (!content || content.includes('failed')) {
