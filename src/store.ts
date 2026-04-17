@@ -90,7 +90,7 @@ const getInitialDarkMode = (): boolean => {
 
 const DEFAULT_PLATFORM: PlatformSettings = {
   platformName: 'NutechLM',
-  platformTagline: 'Research Studio',
+  platformTagline: 'Deep Research Engine',
   copyrightText: '© 2026 Nutech Intelligence. All rights reserved.',
   logoUrl: '',
   footerText: 'Powered by NutechLM Neural Engine',

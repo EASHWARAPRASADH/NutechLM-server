@@ -1,0 +1,21 @@
+
+> nutechlm-neural-vault@1.0.0 build
+> vite build
+
+vite v6.4.1 building for production...
+transforming...
+✓ 3009 modules transformed.
+node_modules/onnxruntime-web/dist/ort-web.min.js (6:62546): Use of eval in "node_modules/onnxruntime-web/dist/ort-web.min.js" is strongly discouraged as it poses security risks and may cause issues with minification.
+rendering chunks...
+computing gzip size...
+dist/index.html                        0.39 kB │ gzip:   0.27 kB
+dist/assets/index-CSgwVdx6.css        95.41 kB │ gzip:  13.94 kB
+dist/assets/purify.es-BgtpMKW3.js     22.77 kB │ gzip:   8.79 kB
+dist/assets/index.es-uU3fciiq.js     159.60 kB │ gzip:  53.51 kB
+dist/assets/index-Bfv-sYeA.js      3,175.01 kB │ gzip: 830.22 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.90s

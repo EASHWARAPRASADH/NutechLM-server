@@ -160,7 +160,7 @@ export default function NotesArea({ notebook }: { notebook: Notebook }) {
               <div className="mt-6 flex items-center justify-between">
                 <div className="text-[9px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest flex items-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 px-2.5 py-1 rounded-lg">
                    <FileText size={10} />
-                   {format(note.createdAt, 'MMM d, h:mm a')}
+                   {format(Number(note.createdAt || Date.now()), 'MMM d, h:mm a')}
                 </div>
                 
                 <button

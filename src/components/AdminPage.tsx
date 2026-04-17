@@ -753,7 +753,7 @@ export default function AdminPage() {
                             <span className="text-[10px] font-black text-brand-primary bg-blue-50 dark:bg-brand-primary/20 px-4 py-2 rounded-xl uppercase tracking-widest">{(n as any).sourcesCount || 0} Resources</span>
                           </td>
                           <td className="py-7 px-12">
-                            <span className="text-xs text-neutral-400 font-black uppercase tracking-widest">{format(n.updatedAt, 'MMM d, HH:mm')}</span>
+                            <span className="text-xs text-neutral-400 font-black uppercase tracking-widest">{format(Number(n.updatedAt || Date.now()), 'MMM d, HH:mm')}</span>
                           </td>
                           <td className="py-7 px-12 text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -962,7 +962,7 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-3 mt-1">
                                   <span className="text-[9px] font-black text-brand-primary uppercase tracking-widest">{source.type} asset</span>
                                   <span className="w-1 h-1 rounded-full bg-neutral-300" />
-                                  <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Added {format(source.createdAt || Date.now(), 'MMM dd, yyyy')}</span>
+                                  <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Added {format(Number(source.createdAt || Date.now()), 'MMM dd, yyyy')}</span>
                                   <AnimatePresence>
                                     {lastSavedAsset === source.id && (
                                       <motion.span 
@@ -1365,7 +1365,7 @@ export default function AdminPage() {
                             </td>
                             <td className="py-7 px-10">
                               <p className="text-[10px] text-neutral-400 font-mono bg-neutral-50 dark:bg-neutral-800 p-2.5 rounded-xl max-w-xs truncate">{f.content}</p>
-                              <span className="text-[8px] font-black uppercase tracking-widest text-neutral-400 mt-2 block">{format(f.created_at, 'MMM d, yyyy HH:mm')}</span>
+                              <span className="text-[8px] font-black uppercase tracking-widest text-neutral-400 mt-2 block">{format(Number(f.created_at || Date.now()), 'MMM d, yyyy HH:mm')}</span>
                             </td>
                           </tr>
                         ))}

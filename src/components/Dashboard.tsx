@@ -445,7 +445,7 @@ export default function Dashboard() {
               )}
               <div className="text-sm text-neutral-500 dark:text-neutral-400 flex justify-between items-center">
                 <span className="bg-brand-accent/10 text-brand-accent font-black text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-lg border border-brand-accent/20">{(notebook as any).sourcesCount || 0} resources</span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">{format(notebook.updatedAt, 'MMM d, yyyy')}</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">{format(Number(notebook.updatedAt || Date.now()), 'MMM d, yyyy')}</span>
               </div>
             </motion.div>
           ))}
