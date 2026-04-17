@@ -55,8 +55,8 @@ app.use(async (req, res, next) => {
       details: err.message,
       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
       diagnostics: {
-        hasDbUrl: !!process.env.DATABASE_URL,
-        dbUrlPreview: process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 15) + '...' : 'MISSING'
+        hasDbUrl: !!process.env.SUPABASE_DB_URL,
+        dbUrlPreview: process.env.SUPABASE_DB_URL ? process.env.SUPABASE_DB_URL.substring(0, 15) + '...' : 'MISSING'
       }
     });
   }

@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
-const DATABASE_URL = process.env.DATABASE_URL;
+const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 
@@ -15,7 +15,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Postgres Pool
 const pool = new Pool({
-  connectionString: DATABASE_URL,
+  connectionString: SUPABASE_DB_URL,
   ssl: {
     rejectUnauthorized: false // Required for Supabase/Neon
   }
