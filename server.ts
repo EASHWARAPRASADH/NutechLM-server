@@ -262,6 +262,14 @@ app.post('/api/notebooks/:id/chat', authenticateToken, async (req: any, res) => 
   res.json({ id: messageId, role, content, createdAt: now });
 });
 
+app.patch('/api/notebooks/:id/chat/:messageId', authenticateToken, async (req: any, res) => {
+  const { content } = req.body;
+  const now = Date.now();
+  await db.prepare('UPDATE chat_messages SET content = ? WHERE id = ? AND notebook_id = ?').run(content, req.params.messageId, req.params.id);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ success: true, updatedAt: now });
+});
+
 app.delete('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
   try {
     const n = await db.prepare('SELECT owner_id FROM notebooks WHERE id = ?').get(req.params.id) as any;

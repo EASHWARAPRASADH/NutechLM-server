@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Notebook, Source } from '../types';
 import { useStore } from '../store';
-import { Send, Brain, Globe, Loader2, Sparkles, Trash2, Volume2, VolumeX, Bookmark, X, Plus, Mic, MicOff, Clock, Copy, Check, ThumbsUp, ThumbsDown, FileText, ListCollapse, MessageSquare, Download, StopCircle, Speech, FileSpreadsheet } from 'lucide-react';
+import { Send, Brain, Globe, Loader2, Sparkles, Trash2, Volume2, VolumeX, Bookmark, X, Plus, Mic, MicOff, Clock, Copy, Check, ThumbsUp, ThumbsDown, FileText, ListCollapse, MessageSquare, Download, StopCircle, Speech, FileSpreadsheet, Edit3 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import html2canvas from 'html2canvas';
@@ -280,13 +280,12 @@ function processChildren(
 }
 
 export default function ChatArea({ notebook }: { notebook: Notebook }) {
-  const { 
-    addChatMessage, clearChat, setHighlightedSourceId, masterSources, 
-    currentUser, addNote, updateNote, toggleSourceSelection, setDraggedSource,
-    platformSettings, updateChatFeedback, savePlatformSettings, fetchPlatformSettings
-  } = useStore();
+  const { addChatMessage, updateChatMessage, clearChat, updateChatFeedback, platformSettings, savePlatformSettings, addNote, updateNote, masterSources } = useStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editInput, setEditInput] = useState('');
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [isSummarizingChat, setIsSummarizingChat] = useState(false);
   const [globalSummarizing, setGlobalSummarizing] = useState<{isActive: boolean, message: string}>({isActive: false, message: ''});
@@ -344,7 +343,6 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [inferenceTimings, setInferenceTimings] = useState<Record<string, number>>({});
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [highlightedCitation, setHighlightedCitation] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -901,7 +899,45 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
                       </AnimatePresence>
                     </>
                   ) : (
-                    <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.content}</p>
+                    <div className="relative group/user">
+                      {editingMessageId === msg.id ? (
+                        <div className="flex flex-col gap-3 min-w-[300px]">
+                          <textarea
+                            value={editInput}
+                            onChange={(e) => setEditInput(e.target.value)}
+                            className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-brand-primary/20 min-h-[100px] resize-none"
+                            autoFocus
+                          />
+                          <div className="flex justify-end gap-2">
+                             <button
+                              onClick={() => setEditingMessageId(null)}
+                              className="px-4 py-2 text-xs font-bold text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl transition-all"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleEditSave(msg.id)}
+                              disabled={isLoading}
+                              className="px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-xl hover:bg-blue-600 transition-all flex items-center gap-2"
+                            >
+                              {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                              Save & Regenerate
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.content}</p>
+                          <button
+                            onClick={() => handleEditStart(msg)}
+                            className="absolute -left-10 top-1/2 -translate-y-1/2 p-2 text-neutral-300 hover:text-brand-primary opacity-0 group-hover/user:opacity-100 transition-all"
+                            title="Edit Prompt"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </motion.div>

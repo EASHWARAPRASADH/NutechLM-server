@@ -56,6 +56,7 @@ interface AppState {
   deleteNote: (notebookId: string, noteId: string) => Promise<void>;
 
   addChatMessage: (notebookId: string, message: { role: 'user' | 'model'; content: string }) => Promise<void>;
+  updateChatMessage: (notebookId: string, messageId: string, content: string) => Promise<void>;
   updateChatFeedback: (notebookId: string, messageId: string, feedbackType: 'up' | 'down', feedbackText: string) => Promise<void>;
   clearChat: (notebookId: string) => Promise<void>;
 
@@ -328,6 +329,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   addChatMessage: async (nbId, message) => {
     await api.post(`/notebooks/${nbId}/chat`, message);
+    await get().fetchNotebookDetails(nbId);
+  },
+  
+  updateChatMessage: async (nbId, msgId, content) => {
+    await api.patch(`/notebooks/${nbId}/chat/${msgId}`, { content });
     await get().fetchNotebookDetails(nbId);
   },
 
