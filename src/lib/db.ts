@@ -206,8 +206,12 @@ export async function initDb() {
 /**
  * Compatibility wrapper to minimize changes in server.ts
  */
+const sanitizeParams = (params: any[]) => {
+  return params.map(p => typeof p === 'string' ? p.replace(/\0/g, '') : p);
+};
+
 export const db = {
-  query: (text: string, params?: any[]) => pool.query(text, params),
+  query: (text: string, params?: any[]) => pool.query(text, params ? sanitizeParams(params) : params),
   prepare: (text: string) => {
     // This is a bridge for better-sqlite3 logic
     // Usage: db.prepare(sql).get(params) -> await db.prepare(sql).get(params)
@@ -216,15 +220,15 @@ export const db = {
     const sql = text.replace(/\?/g, () => `$${++count}`);
     return {
       get: async (...p: any[]) => {
-        const res = await pool.query(sql, p);
+        const res = await pool.query(sql, sanitizeParams(p));
         return res.rows[0];
       },
       all: async (...p: any[]) => {
-        const res = await pool.query(sql, p);
+        const res = await pool.query(sql, sanitizeParams(p));
         return res.rows;
       },
       run: async (...p: any[]) => {
-        return pool.query(sql, p);
+        return pool.query(sql, sanitizeParams(p));
       }
     };
   }
