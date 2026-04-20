@@ -1,6 +1,57 @@
+import { pipeline, env } from '@xenova/transformers';
+
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
 // ═══════════════════════════════════════════════════════════════════════
 // Technosprint Intelligence Engine — Bridge Mode
 // ═══════════════════════════════════════════════════════════════════════
+
+function encodeWAV(samples: Float32Array, sampleRate: number): Uint8Array {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (v: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) v.setUint8(offset + i, string.charCodeAt(i));
+  };
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Uint8Array(buffer);
+}
+
+let ttsPipeline: any = null;
+
+export async function generateSpeech(
+  text: string, 
+  voice: 'male1' | 'female1' | 'male2' | 'female2' | 'specialist' = 'male1'
+): Promise<string | null> {
+  try {
+    if (!ttsPipeline) {
+      ttsPipeline = await pipeline('text-to-speech', 'Xenova/vits-eng-vctk', { quantized: true });
+    }
+    const speakerMap: Record<string, number> = { male1: 4, female1: 10, male2: 11, female2: 16, specialist: 0 };
+    const speakerId = speakerMap[voice] || 4;
+    const result = await ttsPipeline(text.replace(/[*#_|~`]/g, '').trim(), { speaker_id: speakerId, speed: 0.85 });
+    const wavBytes = encodeWAV(result.audio, result.sampling_rate);
+    let binary = '';
+    for (let i = 0; i < wavBytes.length; i++) binary += String.fromCharCode(wavBytes[i]);
+    return btoa(binary);
+  } catch (e) {
+    console.error('TTS failed:', e);
+    return null;
+  }
+}
 
 /**
  * generateChatResponse
