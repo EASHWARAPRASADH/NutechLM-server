@@ -11,9 +11,11 @@ import multer from 'multer';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { createWorker } from 'tesseract.js';
-import { transcribeImageBest } from './src/lib/ai';
-import { fileURLToPath } from 'url';
-import { PDFParse } from 'pdf-parse';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { pipeline, env } from '@xenova/transformers';
+
+env.allowLocalModels = false;
+env.useBrowserCache = true;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -240,6 +242,76 @@ app.post('/api/notebooks/:id/chat', authenticateToken, async (req: any, res) => 
     .run(messageId, req.params.id, role, content, now);
   await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
   res.json({ id: messageId, role, content, createdAt: now });
+});
+
+// ═══════════════════════════════════════════════════════════
+// SECURE AI PROXY API
+// ═══════════════════════════════════════════════════════════
+
+const genAI = process.env.VITE_GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY) : null;
+const COMMON_PERSONA = `You are Technosprint Intelligence — a proprietary deep research engine developed by Technosprint Info Solutions.
+IDENTITY RULE: You identify strictly as a product of Technosprint Info Solutions. NEVER mention Google, Gemini, Ollama, or OpenAI. If asked about your model, state you are a proprietary Technosprint neural network.`;
+
+app.post('/api/ai/chat', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.status(503).json({ error: "AI Engine Offline: Missing Server Credentials." });
+  const { prompt, sources, history, masterSources } = req.body;
+
+  try {
+    const allSources = [...(sources || []), ...(masterSources || [])];
+    
+    // Construct Context (Simple version for server-side proxy)
+    let sourceContext = "";
+    allSources.slice(0, 15).forEach((s, i) => {
+      sourceContext += `SOURCE [${i+1}]: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}\n\n`;
+    });
+
+    const systemInstruction = `${COMMON_PERSONA}
+You are in MAXIMUM INTELLIGENCE mode. Cite sources using [1], [2] inline.
+DO NOT STOP EARLY. Provide 8-12 paragraphs of dense technical analysis.
+
+SOURCES:
+${sourceContext}`;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview", systemInstruction });
+    
+    let validHistory = (history || [])
+      .slice(-10)
+      .filter((h: any) => h.content && h.content.trim() !== '');
+    
+    while (validHistory.length > 0 && validHistory[0].role !== 'user') {
+      validHistory.shift();
+    }
+
+    const chat = model.startChat({
+      history: validHistory.map((h: any) => ({ role: h.role, parts: [{ text: h.content }] }))
+    });
+
+    // Set headers for streaming text
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const result = await chat.sendMessageStream(prompt);
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      res.write(text);
+    }
+    res.end();
+  } catch (error: any) {
+    console.error('[AI] Generation Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/ai/title', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.sendStatus(503);
+  const { content } = req.body;
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    const result = await model.generateContent(`Summarize the following into a 3-5 word title. Return ONLY the title text.\n\n${content.substring(0, 1000)}`);
+    res.json({ title: result.response.text().trim().replace(/[*"']/g, '') });
+  } catch (e) {
+    res.json({ title: 'Research Note' });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════
