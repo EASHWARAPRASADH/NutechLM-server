@@ -280,7 +280,20 @@ function processChildren(
 }
 
 export default function ChatArea({ notebook }: { notebook: Notebook }) {
-  const { addChatMessage, updateChatMessage, clearChat, updateChatFeedback, platformSettings, savePlatformSettings, addNote, updateNote, masterSources } = useStore();
+  const { 
+    addChatMessage, 
+    updateChatMessage, 
+    clearChat, 
+    updateChatFeedback, 
+    platformSettings, 
+    fetchPlatformSettings,
+    savePlatformSettings, 
+    addNote, 
+    updateNote, 
+    masterSources,
+    setHighlightedSourceId,
+    setPreviewSourceId
+  } = useStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
