@@ -88,25 +88,40 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
         newlyUploaded.push({ title: data.title || file.name, content: data.content });
       }
       
-      // Multi-document summary or single summary
+      // --- Step 3: Multi-document summary workflow (Individual + Consolidated) ---
       if (newlyUploaded.length > 0) {
-        setUploadError(newlyUploaded.length > 1 ? "Synthesizing full document batch..." : "Generating intelligence summary...");
-        // Tell the chat area to show an active loading state!
-        window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: true, message: "Synthesizing Source Guide..." } }));
-        
-        try {
-           if (newlyUploaded.length > 1) {
-              const consolidated = await generateConsolidatedSummary(newlyUploaded);
-              await addChatMessage(notebook.id, { role: 'model', content: consolidated });
-           } else {
-              const single = await generateSourceSummary(newlyUploaded[0].title, newlyUploaded[0].content);
-              await addChatMessage(notebook.id, { role: 'model', content: single });
-           }
-        } catch (sumErr) {
-           console.error("Auto-summary failed:", sumErr);
-        } finally {
-           window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: false } }));
+        // Individual Summaries
+        for (let i = 0; i < newlyUploaded.length; i++) {
+          const doc = newlyUploaded[i];
+          setUploadError(newlyUploaded.length > 1 ? `Synthesizing Individual Summary [${i + 1}/${newlyUploaded.length}]...` : "Generating intelligence summary...");
+          window.dispatchEvent(new CustomEvent('nutech:chat-loading', { 
+            detail: { isActive: true, message: `Analyzing ${doc.title}...` } 
+          }));
+          
+          try {
+            const single = await generateSourceSummary(doc.title, doc.content);
+            await addChatMessage(notebook.id, { role: 'model', content: single });
+          } catch (err) {
+            console.error(`Summary failed for ${doc.title}:`, err);
+          }
         }
+
+        // Consolidated Summary (Only if batch > 1)
+        if (newlyUploaded.length > 1) {
+          setUploadError("Synthesizing fully consolidated intelligence batch...");
+          window.dispatchEvent(new CustomEvent('nutech:chat-loading', { 
+            detail: { isActive: true, message: "Synthesizing Final Source Guide..." } 
+          }));
+          
+          try {
+            const consolidated = await generateConsolidatedSummary(newlyUploaded);
+            await addChatMessage(notebook.id, { role: 'model', content: consolidated });
+          } catch (err) {
+            console.error("Consolidated synthesis failed:", err);
+          }
+        }
+        
+        window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: false } }));
       }
       
       setUploadError(null);

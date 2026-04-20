@@ -132,10 +132,43 @@ export async function generateFollowUpQuestions(chatHistory: any[]): Promise<str
   return ["What are the key technical implications?", "How does this compare to existing standards?", "Can you elaborate on the source data?"];
 }
 
-export async function generateNotesSummary(notes: any[]): Promise<string> { return "Summary logic migrated to backend."; }
-export async function generateSourceSummary(title: string, content: string): Promise<string> { return "Source Guide: " + title; }
-export async function generateChatSummary(chatHistory: any[], sources: any[]): Promise<string> { return "Chat summary migrated."; }
-export async function generateConsolidatedSummary(sources: any[], onToken?: any): Promise<string> { return "Consolidated Report."; }
+export async function generateSourceSummary(title: string, content: string): Promise<string> {
+  const prompt = `Please provide a concise, professional summary of this document: "${title}". 
+Focus on the key takeaways and main points. Keep it structured with bullet points if helpful. 
+Respond ONLY with the summary.
+
+DOCUMENT CONTENT:
+${content.substring(0, 10000)}`;
+  
+  return generateChatResponse(prompt, [], []);
+}
+
+export async function generateConsolidatedSummary(sources: any[], onToken?: any): Promise<string> {
+  let context = "";
+  sources.forEach((s, i) => {
+    context += `DOCUMENT [${i+1}]: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}\n\n`;
+  });
+
+  const prompt = `You are synthesizing a high-level research guide from multiple documents.
+Please provide a consolidated summary that connects the themes across all provided documents.
+Highlight commonalities and unique insights from each.
+
+DOCUMENTS:
+${context}
+
+Structure the response as follows:
+# Consolidated Intelligence Report
+## Executive Synthesis
+(A one-paragraph overview)
+
+## Key Document Insights
+(Bullet points for each document)
+
+## Cross-Document Themes
+(Main themes found across the batch)`;
+
+  return generateChatResponse(prompt, [], [], onToken);
+}
 export async function transcribeImageBest(dataUrl: string): Promise<string> { return "Vision is currently disabled in Bridge Mode."; }
 
 export type { };
