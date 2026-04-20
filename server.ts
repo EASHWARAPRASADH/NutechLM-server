@@ -262,6 +262,20 @@ app.post('/api/notebooks/:id/chat', authenticateToken, async (req: any, res) => 
   res.json({ id: messageId, role, content, createdAt: now });
 });
 
+app.delete('/api/notebooks/:id/chat', authenticateToken, async (req: any, res) => {
+  const now = Date.now();
+  await db.prepare('DELETE FROM chat_messages WHERE notebook_id = ?').run(req.params.id);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ success: true, timestamp: now });
+});
+
+app.delete('/api/notebooks/:id/sources/:sourceId', authenticateToken, async (req: any, res) => {
+  const now = Date.now();
+  await db.prepare('DELETE FROM sources WHERE id = ? AND notebook_id = ?').run(req.params.sourceId, req.params.id);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ success: true, timestamp: now });
+});
+
 app.patch('/api/notebooks/:id/chat/:messageId', authenticateToken, async (req: any, res) => {
   const { content } = req.body;
   const now = Date.now();
@@ -552,6 +566,9 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
     if (mimetype === 'application/pdf') {
        const data = await pdf(fileBuffer);
        content = data.text;
+    } else if (ext === '.docx' || mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+       const result = await mammoth.extractRawText({ buffer: fileBuffer });
+       content = result.value;
     } else if (mimetype.startsWith('image/')) {
       content = await transcribeImageBest(`data:${mimetype};base64,${fileBuffer.toString('base64')}`);
       if (!content || content.includes('failed')) {
