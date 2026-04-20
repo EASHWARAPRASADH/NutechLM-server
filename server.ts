@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import { createWorker } from 'tesseract.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { pipeline, env } from '@xenova/transformers';
+import { fileURLToPath } from 'url';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
