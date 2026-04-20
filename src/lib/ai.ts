@@ -4,7 +4,7 @@ env.allowLocalModels = false;
 env.useBrowserCache = true;
 
 // ═══════════════════════════════════════════════════════════════════════
-// Technosprint Intelligence Engine — Bridge Mode
+// Nutech Research Engine — Bridge Mode
 // ═══════════════════════════════════════════════════════════════════════
 
 function encodeWAV(samples: Float32Array, sampleRate: number): Uint8Array {

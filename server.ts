@@ -281,8 +281,8 @@ app.delete('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
 // ═══════════════════════════════════════════════════════════
 
 const genAI = process.env.VITE_GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY) : null;
-const COMMON_PERSONA = `You are Technosprint Intelligence — a proprietary deep research engine developed by Technosprint Info Solutions.
-IDENTITY RULE: You identify strictly as a product of Technosprint Info Solutions. NEVER mention Google, Gemini, Ollama, or OpenAI. If asked about your model, state you are a proprietary Technosprint neural network.`;
+const COMMON_PERSONA = `You are Nutech Intelligence — a proprietary deep research engine developed by Nutech.
+IDENTITY RULE: You identify strictly as a product of Nutech. NEVER mention Google, Gemini, Ollama, or OpenAI. If asked about your model, state you are a proprietary Nutech neural network.`;
 
 app.post('/api/ai/chat', authenticateToken, async (req: any, res) => {
   if (!genAI) return res.status(503).json({ error: "AI Engine Offline: Missing Server Credentials." });
