@@ -14,6 +14,7 @@ import { createWorker } from 'tesseract.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { pipeline, env } from '@xenova/transformers';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
@@ -86,8 +87,15 @@ app.use((req, res, next) => {
   next();
 });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
+// ── STORAGE CONFIG (Memory-Safe) ──
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, '/tmp'),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 } 
+});
 
 const authenticateToken = (req: any, res: any, next: any) => {
   const authHeader = req.headers['authorization'];
@@ -371,15 +379,24 @@ app.get('/api/master-sources', authenticateToken, async (req, res) => {
 
 app.post('/api/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const title = req.body.title || req.file.originalname;
+  const filePath = req.file.path;
+
   try {
-    const title = req.file.originalname;
-    const fileBuffer = req.file.buffer;
+    const fileBuffer = fs.readFileSync(filePath);
     const ext = path.extname(title).toLowerCase();
     let mimetype = req.file.mimetype;
     if (ext === '.pdf') mimetype = 'application/pdf';
     
-    const fileName = `${req.user.id}/${Date.now()}-${title}`;
-    await supabase.storage.from('LM').upload(fileName, fileBuffer, { contentType: mimetype, upsert: true });
+    // Upload to Supabase Storage
+    const fileName = `${req.user.id}/${path.basename(filePath)}`;
+    const { error: uploadError } = await supabase.storage.from('LM').upload(fileName, fileBuffer, { 
+      contentType: mimetype, 
+      upsert: true 
+    });
+
+    if (uploadError) throw new Error(`Supabase Storage Error: ${uploadError.message}`);
+    
     const { data: { publicUrl: fileUrl } } = supabase.storage.from('LM').getPublicUrl(fileName);
 
     let content = '';
@@ -397,11 +414,23 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
     } else {
       content = fileBuffer.toString('utf-8');
     }
-    res.json({ title, content, type: mimetype.startsWith('image/') ? 'image' : (mimetype === 'application/pdf' ? 'pdf' : 'text'), fileUrl });
+
+    // Cleanup temp file immediately
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    res.json({ 
+      title, 
+      content, 
+      type: mimetype.startsWith('image/') ? 'image' : (mimetype === 'application/pdf' ? 'pdf' : 'text'), 
+      fileUrl 
+    });
   } catch (error: any) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    console.error('[UPLOAD] Terminal Error:', error);
     res.status(500).json({ error: 'Upload failed', details: error.message });
   }
 });
+
 
 // ═══════════════════════════════════════════════════════════
 // VITE & PRODUCTION SERVING
