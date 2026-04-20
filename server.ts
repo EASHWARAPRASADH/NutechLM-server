@@ -318,11 +318,20 @@ if (!isProd) {
 } else {
   const distPath = path.resolve(__dirname, 'dist');
   console.log('[PROD] Serving static assets from:', distPath);
-  app.use(express.static(distPath));
+  
+  // Serve static assets with long-term caching
+  app.use(express.static(distPath, {
+    maxAge: '1y',
+    immutable: true,
+    index: false // we handle index.html manually below
+  }));
   
   // Handle SPA routing
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
+    
+    // Set no-cache for index.html to ensure users always get the latest asset hashes
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
