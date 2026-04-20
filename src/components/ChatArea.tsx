@@ -618,6 +618,53 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
     }
   };
 
+  const handleEditStart = (msg: any) => {
+    setEditingMessageId(msg.id);
+    setEditInput(msg.content);
+  };
+
+  const handleEditSave = async (msgId: string) => {
+    if (!editInput.trim() || isLoading) return;
+    
+    setIsLoading(true);
+    setEditingMessageId(null);
+    
+    try {
+      // 1. Update the user prompt in DB
+      await updateChatMessage(notebook.id, msgId, editInput.trim());
+      
+      // 2. Clear follow-ups as the context has changed
+      setFollowUps([]);
+      
+      const allAvailableSources = [...notebook.sources, ...(masterSources || [])];
+      const activeSources = (notebook.selectedSourceIds || []).length > 0 
+        ? allAvailableSources.filter(s => (notebook.selectedSourceIds || []).includes(s.id))
+        : allAvailableSources;
+
+      abortControllerRef.current = new AbortController();
+      setStreamingContent('');
+      
+      // 3. Regenerate — Note that we include the full history. 
+      // The model will see the *updated* message at its original position.
+      const response = await generateChatResponse(
+        editInput.trim(), 
+        activeSources, 
+        notebook.chatHistory, 
+        (token) => setStreamingContent(prev => (prev === null ? '' : prev) + token),
+        undefined, 
+        masterSources,
+        abortControllerRef.current.signal
+      );
+      
+      setStreamingContent(null);
+      await addChatMessage(notebook.id, { role: 'model', content: response });
+    } catch (error) {
+      console.error('Failed to update and regenerate:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSaveNote = async (content: string) => {
     const tempTitle = content.split('\n')[0].substring(0, 40).replace(/[#*`\[\]0-9]/g, '').trim() || 'AI Response';
     const noteId = await addNote(notebook.id, { title: tempTitle, content });
