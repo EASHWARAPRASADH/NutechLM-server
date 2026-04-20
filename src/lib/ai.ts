@@ -169,6 +169,30 @@ Structure the response as follows:
 
   return generateChatResponse(prompt, [], [], onToken);
 }
+
+export async function generateChatSummary(chatHistory: any[], sources: any[]): Promise<string> {
+  const prompt = `Please summarize the key points discussed in this chat session. 
+Focus on the technical insights and research findings derived from the sources.
+
+HISTORY:
+${JSON.stringify(chatHistory.slice(-20))}
+
+SOURCES ANALYZED:
+${sources.map(s => s.title).join(', ')}`;
+
+  return generateChatResponse(prompt, sources, []);
+}
+
+export async function generateNotesSummary(notes: any[]): Promise<string> {
+  const prompt = `Synthesize a high-level briefing note from these scattered research notes.
+Connect the ideas and provide a cohesive outlook.
+
+NOTES:
+${notes.map(n => `TITLE: ${n.title}\nCONTENT: ${n.content}`).join('\n\n')}`;
+
+  return generateChatResponse(prompt, [], []);
+}
+
 export async function transcribeImageBest(dataUrl: string): Promise<string> { return "Vision is currently disabled in Bridge Mode."; }
 
 export type { };
