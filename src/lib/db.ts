@@ -16,6 +16,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Postgres Pool
 const pool = new Pool({
   connectionString: SUPABASE_DB_URL,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
   ssl: {
     rejectUnauthorized: false // Required for Supabase/Neon
   }
@@ -179,6 +181,18 @@ export async function initDb() {
     `, ['admin-id', 'System Administrator', adminEmail, hashedPassword, 'admin', now, now]);
 
     console.log('[DB] Primary Admin Certificate Synchronized.');
+
+    // ── Storage Initializer ──
+    console.log('[STORY] Verifying Neural Storage (LM Bucket)...');
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const lmBucket = buckets?.find(b => b.name === 'LM');
+    
+    if (!lmBucket) {
+      console.log('[STORY] Creating missing LM bucket...');
+      await supabase.storage.createBucket('LM', { public: true });
+    } else {
+      console.log('[STORY] Neural Storage synchronized.');
+    }
 
     console.log('[DB] Neural Vault Integrity Verified (Supabase Cloud).');
   } catch (err) {

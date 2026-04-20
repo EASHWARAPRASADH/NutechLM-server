@@ -38,14 +38,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'nutech-neural-vault-secret-2026';
 let isDbInitialized = false;
 
 async function ensureDb() {
-  if (!isDbInitialized) {
-    try {
-      await initDb();
-      isDbInitialized = true;
-    } catch (err) {
-      console.error('[CRITICAL] Database Initialization Failed:', err);
-      throw err;
-    }
+  if (isDbInitialized) return;
+  
+  // Timeout for DB init (15 seconds) to prevent 502 Gateway timeouts on Render
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Cloud Database Initialization Timeout')), 15000)
+  );
+
+  try {
+    await Promise.race([initDb(), timeoutPromise]);
+    isDbInitialized = true;
+    console.log('[PROD] Cloud Backbone Fully Initialized.');
+  } catch (err) {
+    console.error('[CRITICAL] Database Initialization Failed:', err);
+    throw err;
   }
 }
 
