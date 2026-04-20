@@ -14,6 +14,7 @@ import { createWorker } from 'tesseract.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { pipeline, env } from '@xenova/transformers';
 import { fileURLToPath } from 'url';
+import pdf from 'pdf-parse';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -315,6 +316,23 @@ app.post('/api/ai/title', authenticateToken, async (req: any, res) => {
   }
 });
 
+async function transcribeImageBest(dataUrl: string): Promise<string> {
+  if (!genAI) return "Vision Engine offline.";
+  try {
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    const result = await model.generateContent([
+      "Analyze this document accurately. Transcribe tables in Markdown. Describe diagrams exactly.",
+      { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
+    ]);
+    return result.response.text().trim();
+  } catch (e) {
+    console.error('[AI] Vision Error:', e);
+    return "Vision transcription failed.";
+  }
+}
+
+
 // ═══════════════════════════════════════════════════════════
 // SETTINGS & MASTER CONTENT
 // ═══════════════════════════════════════════════════════════
@@ -358,9 +376,8 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
 
     let content = '';
     if (mimetype === 'application/pdf') {
-      const parser = new PDFParse({ data: fileBuffer });
-      const data = await parser.getText();
-      content = data.text;
+       const data = await pdf(fileBuffer);
+       content = data.text;
     } else if (mimetype.startsWith('image/')) {
       content = await transcribeImageBest(`data:${mimetype};base64,${fileBuffer.toString('base64')}`);
       if (!content || content.includes('failed')) {
