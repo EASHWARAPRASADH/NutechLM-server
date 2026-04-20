@@ -298,8 +298,10 @@ app.post('/api/ai/chat', authenticateToken, async (req: any, res) => {
     });
 
     const systemInstruction = `${COMMON_PERSONA}
-You are in MAXIMUM INTELLIGENCE mode. Cite sources using [1], [2] inline.
-DO NOT STOP EARLY. Provide 8-12 paragraphs of dense technical analysis.
+You are a precision-oriented research assistant. 
+1. If the user provides a greeting (e.g., 'hi', 'hello'), respond concisely and professionally.
+2. If sources are provided, cite them using [1], [2] inline.
+3. Be comprehensive for research queries, but DO NOT force long responses for simple messages.
 
 SOURCES:
 ${sourceContext}`;
