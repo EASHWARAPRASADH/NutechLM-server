@@ -262,6 +262,20 @@ app.post('/api/notebooks/:id/chat', authenticateToken, async (req: any, res) => 
   res.json({ id: messageId, role, content, createdAt: now });
 });
 
+app.delete('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
+  try {
+    const n = await db.prepare('SELECT owner_id FROM notebooks WHERE id = ?').get(req.params.id) as any;
+    if (!n) return res.sendStatus(404);
+    if (n.owner_id !== req.user.id && req.user.role !== 'admin') return res.sendStatus(403);
+    
+    await db.prepare('DELETE FROM notebooks WHERE id = ?').run(req.params.id);
+    res.sendStatus(204);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete assets' });
+  }
+});
+
+
 // ═══════════════════════════════════════════════════════════
 // SECURE AI PROXY API
 // ═══════════════════════════════════════════════════════════
@@ -372,6 +386,131 @@ app.get('/api/master-sources', authenticateToken, async (req, res) => {
   const sources = await db.prepare('SELECT * FROM master_sources ORDER BY created_at DESC').all();
   res.json(mapToCamel(sources));
 });
+
+// ── ADMIN & USER MANAGEMENT ──
+
+app.get('/api/users', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  const users = await db.prepare('SELECT u.*, p.custom_logo_url FROM users u LEFT JOIN user_preferences p ON u.id = p.user_id ORDER BY u.created_at DESC').all() as any[];
+  res.json(users.map(u => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    avatarUrl: u.avatar_url,
+    customLogoUrl: u.custom_logo_url,
+    needsPasswordReset: u.needs_password_reset === 1,
+    passwordNeverExpires: u.password_never_expires === 1,
+    createdAt: u.created_at
+  })));
+});
+
+app.post('/api/settings', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  const settings = req.body;
+  const now = Date.now();
+  try {
+    for (const [camelKey, value] of Object.entries(settings)) {
+      const key = camelToSnake(camelKey);
+      await db.prepare('INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at')
+        .run(key, String(value), now);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update global identity' });
+  }
+});
+
+app.post('/api/settings/logo', authenticateToken, upload.single('logo'), async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (!req.file) return res.status(400).json({ error: 'No image detected' });
+  
+  const filePath = req.file.path;
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileName = `platform/logo-${Date.now()}${path.extname(req.file.originalname)}`;
+    
+    await supabase.storage.from('LM').upload(fileName, fileBuffer, { contentType: req.file.mimetype, upsert: true });
+    const { data: { publicUrl: logoUrl } } = supabase.storage.from('LM').getPublicUrl(fileName);
+    
+    await db.prepare('INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at')
+      .run('logo_url', logoUrl, Date.now());
+    
+    fs.unlinkSync(filePath);
+    res.json({ logoUrl });
+  } catch (err) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ error: 'Logo synchronization failed' });
+  }
+});
+
+app.post('/api/users/:userId/logo', authenticateToken, upload.single('logo'), async (req: any, res) => {
+  if (req.user.role !== 'admin' && req.user.id !== req.params.userId) return res.sendStatus(403);
+  if (!req.file) return res.status(400).json({ error: 'No image detected' });
+  
+  const filePath = req.file.path;
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileName = `users/${req.params.userId}/logo-${Date.now()}`;
+    
+    await supabase.storage.from('LM').upload(fileName, fileBuffer, { contentType: req.file.mimetype, upsert: true });
+    const { data: { publicUrl: logoUrl } } = supabase.storage.from('LM').getPublicUrl(fileName);
+    
+    await db.prepare('INSERT INTO user_preferences (user_id, custom_logo_url, created_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET custom_logo_url = EXCLUDED.custom_logo_url')
+      .run(req.params.userId, logoUrl, Date.now());
+    
+    fs.unlinkSync(filePath);
+    res.json({ logoUrl });
+  } catch (err) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ error: 'User branding failed' });
+  }
+});
+
+app.post('/api/settings/background', authenticateToken, upload.single('file'), async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (!req.file) return res.status(400).json({ error: 'No image detected' });
+  
+  const filePath = req.file.path;
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileName = `platform/bg-${Date.now()}${path.extname(req.file.originalname)}`;
+    
+    await supabase.storage.from('LM').upload(fileName, fileBuffer, { contentType: req.file.mimetype, upsert: true });
+    const { data: { publicUrl: url } } = supabase.storage.from('LM').getPublicUrl(fileName);
+    
+    await db.prepare('INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at')
+      .run('chat_background_url', url, Date.now());
+    
+    fs.unlinkSync(filePath);
+    res.json({ url });
+  } catch (err) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ error: 'Background synchronization failed' });
+  }
+});
+
+app.post('/api/users/:userId/reset', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  const now = Date.now();
+  await db.prepare('UPDATE users SET needs_password_reset = 1, password_updated_at = ? WHERE id = ?').run(now, req.params.userId);
+  res.json({ success: true });
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (req.params.id === 'admin-id') return res.status(403).json({ error: 'System Authority cannot be revoked.' });
+  await db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.sendStatus(204);
+});
+
+app.get('/api/admin/feedback', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  const logs = await db.prepare('SELECT cm.*, n.title as notebook_title FROM chat_messages cm JOIN notebooks n ON cm.notebook_id = n.id WHERE cm.feedback_type IS NOT NULL ORDER BY cm.created_at DESC').all();
+  res.json(mapToCamel(logs));
+});
+
+
 
 // ═══════════════════════════════════════════════════════════
 // UPLOAD & SCRAPE
