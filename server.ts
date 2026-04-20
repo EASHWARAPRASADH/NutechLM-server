@@ -14,7 +14,9 @@ import { createWorker } from 'tesseract.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { pipeline, env } from '@xenova/transformers';
 import { fileURLToPath } from 'url';
-import pdf from 'pdf-parse';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
