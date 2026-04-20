@@ -28,6 +28,7 @@ export async function initDb() {
   const client = await pool.connect();
   try {
     console.log('[DB] Synchronizing Neural Vault with Cloud Postgres...');
+    const now = Date.now();
     
     // Users Table
     await client.query(`
@@ -154,7 +155,6 @@ export async function initDb() {
         allow_guest_login: 'false',
       };
 
-      const now = Date.now();
       for (const [key, value] of Object.entries(defaultSettings)) {
         await client.query(`
           INSERT INTO platform_settings (key, value, updated_at) 

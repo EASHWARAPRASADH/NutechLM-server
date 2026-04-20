@@ -772,7 +772,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
                       <div className="prose-override" id={`msg-body-${msg.id}`}>
                         <CitedMarkdown 
                           content={msg.content} 
-                          sources={notebook.sources}
+                          sources={[...notebook.sources, ...(masterSources || [])]}
                           onCitationClick={handleCitationClick}
                         />
                       </div>
@@ -945,7 +945,7 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
                 <div className="prose-override">
                   <CitedMarkdown 
                     content={streamingContent || '| Thinking...'} 
-                    sources={notebook.sources}
+                    sources={[...notebook.sources, ...(masterSources || [])]}
                   />
                 </div>
               </div>

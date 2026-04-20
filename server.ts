@@ -13,15 +13,19 @@ import * as XLSX from 'xlsx';
 import { createWorker } from 'tesseract.js';
 import { transcribeImageBest } from './src/lib/ai';
 import { fileURLToPath } from 'url';
-import pdf from 'pdf-parse/lib/pdf-parse.js';
+import { PDFParse } from 'pdf-parse';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 config(); 
 
+import cors from 'cors';
+
 const app = express();
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'nutech-neural-vault-secret-2026';
 
@@ -281,7 +285,8 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
 
     let content = '';
     if (mimetype === 'application/pdf') {
-      const data = await pdf(fileBuffer);
+      const parser = new PDFParse({ data: fileBuffer });
+      const data = await parser.getText();
       content = data.text;
     } else if (mimetype.startsWith('image/')) {
       content = await transcribeImageBest(`data:${mimetype};base64,${fileBuffer.toString('base64')}`);
@@ -312,7 +317,10 @@ if (!isProd) {
   app.use(vite.middlewares);
 } else {
   const distPath = path.resolve(__dirname, 'dist');
+  console.log('[PROD] Serving static assets from:', distPath);
   app.use(express.static(distPath));
+  
+  // Handle SPA routing
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(distPath, 'index.html'));

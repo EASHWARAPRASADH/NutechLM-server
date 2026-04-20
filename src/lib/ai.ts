@@ -8,7 +8,7 @@ env.useBrowserCache = true;
 // Technosprint Intelligence Engine — Cloud Native (Gemini 1.5 Flash)
 // ═══════════════════════════════════════════════════════════════════════
 
-const GEMINI_API_KEY = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process as any).env?.GEMINI_API_KEY : null);
+const GEMINI_API_KEY = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process as any).env?.GEMINI_API_KEY || (process as any).env?.VITE_GEMINI_API_KEY : null);
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -178,9 +178,19 @@ DO NOT STOP EARLY. Provide 8-12 paragraphs of dense technical analysis.
 SOURCES:
 ${sourceContext}`;
 
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", systemInstruction });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview", systemInstruction });
+  // ── Gemini History Guard ──
+  // Rule: MUST start with 'user' role and MUST alternate (implicitly handled by SDK if start is valid)
+  let validHistory = history
+    .slice(-10)
+    .filter(h => h.content && h.content.trim() !== ''); // Skip empty messages
+  
+  while (validHistory.length > 0 && validHistory[0].role !== 'user') {
+    validHistory.shift();
+  }
+
   const chat = model.startChat({
-    history: history.slice(-10).map(h => ({ role: h.role, parts: [{ text: h.content }] }))
+    history: validHistory.map(h => ({ role: h.role, parts: [{ text: h.content }] }))
   });
 
   const result = await chat.sendMessageStream(prompt);
@@ -197,7 +207,7 @@ ${sourceContext}`;
 export async function transcribeImageBest(dataUrl: string): Promise<string> {
   if (!genAI) throw new Error("Vision Engine requires GEMINI_API_KEY.");
   const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const result = await model.generateContent([
     `${COMMON_PERSONA}\nAnalyze this document. Transcribe tables in Markdown. Describe diagrams and technical data exactly.`,
     { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
@@ -207,14 +217,14 @@ export async function transcribeImageBest(dataUrl: string): Promise<string> {
 
 export async function generateNoteTitle(content: string): Promise<string> {
   if (!genAI) return "Research Note";
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const result = await model.generateContent(`Summarize the following into a 3-5 word title. Return ONLY the title text.\n\n${content.substring(0, 1000)}`);
   return result.response.text().trim().replace(/[*"']/g, '');
 }
 
 export async function generateNotesSummary(notes: { title: string; content: string }[]): Promise<string> {
   if (!genAI) throw new Error("Summary Engine unavailable.");
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const text = notes.map(n => `TITLE: ${n.title}\nCONTENT: ${n.content}`).join('\n\n');
   const result = await model.generateContent(`${COMMON_PERSONA}\nSummarize these research notes into a detailed unified report.\n\n${text}`);
   return result.response.text();
@@ -222,14 +232,14 @@ export async function generateNotesSummary(notes: { title: string; content: stri
 
 export async function generateSourceSummary(title: string, content: string): Promise<string> {
   if (!genAI) throw new Error("Source Analysis unavailable.");
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const result = await model.generateContent(`${COMMON_PERSONA}\n# Source Guide: ${title}\nProvide an executive summary and key takeaways for this document.\n\nCONTENT: ${content.substring(0, 15000)}`);
   return result.response.text();
 }
 
 export async function generateChatSummary(chatHistory: any[], sources: any[]): Promise<string> {
   if (!genAI) return "Summary Unavailable";
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const chatText = chatHistory.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
   const result = await model.generateContent(`${COMMON_PERSONA}\nCreate a comprehensive research summary of this conversation.\n\n${chatText}`);
   return result.response.text();
@@ -237,7 +247,7 @@ export async function generateChatSummary(chatHistory: any[], sources: any[]): P
 
 export async function generateConsolidatedSummary(sources: any[], onToken?: (t: string) => void): Promise<string> {
   if (!genAI) throw new Error("Consolidation Engine unavailable.");
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const text = sources.map(s => `DOC: ${s.title}\n${s.content.substring(0, 10000)}`).join('\n\n');
   const result = await model.sendMessageStream(`${COMMON_PERSONA}\nCreate a "Consolidated Intelligence Report" merging all these documents.\n\n${text}`);
   let fullText = '';
@@ -251,13 +261,18 @@ export async function generateConsolidatedSummary(sources: any[], onToken?: (t: 
 
 export async function generateFollowUpQuestions(chatHistory: any[]): Promise<string[]> {
   if (!genAI) return [];
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
   const history = chatHistory.slice(-2).map(m => m.content).join('\n\n');
   const result = await model.generateContent(`Generate 3 follow-up questions for this topic. Return ONLY a JSON array of strings ["Q1", "Q2", "Q3"].\n\nCONTEXT: ${history}`);
   try {
     const text = result.response.text();
+    const match = text.match(/\[.*\]/s);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
     return [];
   } catch (e) {
+    console.warn('Failed to parse follow-ups:', e);
     return [];
   }
 }
