@@ -49,6 +49,7 @@
     "vite": "^6.2.0",
     "wavefile": "^11.0.0",
     "xlsx": "^0.18.5",
+    "tsx": "^4.21.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -61,7 +62,6 @@
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
