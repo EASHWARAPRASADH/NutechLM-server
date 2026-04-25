@@ -129,7 +129,26 @@ export async function processSource(title: string, content: string): Promise<{ t
 
 // Fallback stubs for other AI functions (can be expanded as needed)
 export async function generateFollowUpQuestions(chatHistory: any[]): Promise<string[]> {
-  return ["What are the key technical implications?", "How does this compare to existing standards?", "Can you elaborate on the source data?"];
+  const prompt = `Based on the following research conversation, generate 3-4 diverse, high-value follow-up questions that a researcher might ask to delve deeper into the topic. 
+Return ONLY a JSON array of strings. Do not include any other text.
+
+HISTORY:
+${JSON.stringify(chatHistory.slice(-10))}
+
+FOLLOW-UP QUESTIONS:`;
+
+  try {
+    const response = await generateChatResponse(prompt, [], []);
+    // Try to parse JSON from the response
+    const match = response.match(/\[.*\]/s);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    // Fallback if not JSON
+    return response.split('\n').filter(q => q.trim().length > 5).slice(0, 3);
+  } catch (e) {
+    return ["What are the key technical implications?", "How does this compare to existing standards?", "Can you elaborate on the source data?"];
+  }
 }
 
 export async function generateSourceSummary(title: string, content: string): Promise<string> {

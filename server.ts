@@ -370,13 +370,20 @@ app.post('/api/ai/title', authenticateToken, async (req: any, res) => {
   }
 });
 
+function cleanExtractedText(text: string): string {
+  if (!text) return '';
+  // Remove NUL characters and other control characters except newlines/tabs
+  // This prevents 'garbled/encrypted' looking output caused by binary junk in text layers
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+}
+
 async function transcribeImageBest(dataUrl: string): Promise<string> {
   if (!genAI) return "Vision Engine offline.";
   try {
     const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent([
-      "Analyze this document accurately. Transcribe tables in Markdown. Describe diagrams exactly.",
+      "Extract all text from this document image exactly as it appears. Preserve the layout and structure. If there are tables, format them as clean Markdown tables. Ensure the output is human-readable and contains no encoded characters or gibberish. If the image is unreadable, state 'Unreadable document image'.",
       { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
     ]);
     return result.response.text().trim();
@@ -507,7 +514,7 @@ app.post('/api/settings/background', authenticateToken, upload.single('file'), a
       .run('chat_background_url', url, Date.now());
     
     fs.unlinkSync(filePath);
-    res.json({ url });
+    res.json({ chatBackgroundUrl: url });
   } catch (err) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     res.status(500).json({ error: 'Background synchronization failed' });
@@ -564,21 +571,29 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
 
     let content = '';
     if (mimetype === 'application/pdf') {
-       const data = await pdf(fileBuffer);
-       content = data.text;
+       try {
+         const data = await pdf(fileBuffer);
+         content = cleanExtractedText(data.text);
+         // Fallback if PDF text extraction returns almost nothing (scanned PDF)
+         if (content.length < 10) {
+           content = "[Scanned PDF detected - Text layer missing or unreadable]";
+         }
+       } catch (pdfErr) {
+         content = "[PDF parsing error - document may be corrupted or encrypted]";
+       }
     } else if (ext === '.docx' || mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
        const result = await mammoth.extractRawText({ buffer: fileBuffer });
-       content = result.value;
+       content = cleanExtractedText(result.value);
     } else if (mimetype.startsWith('image/')) {
       content = await transcribeImageBest(`data:${mimetype};base64,${fileBuffer.toString('base64')}`);
-      if (!content || content.includes('failed')) {
+      if (!content || content.includes('failed') || content.includes('Unreadable')) {
          const worker = await createWorker('eng');
          const { data: { text } } = await worker.recognize(fileBuffer);
-         content = text.trim();
+         content = cleanExtractedText(text);
          await worker.terminate();
       }
     } else {
-      content = fileBuffer.toString('utf-8');
+      content = cleanExtractedText(fileBuffer.toString('utf-8'));
     }
 
     // Cleanup temp file immediately

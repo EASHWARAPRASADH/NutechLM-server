@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Notebook, Source } from '../types';
 import { useStore } from '../store';
 import { Send, Brain, Globe, Loader2, Sparkles, Trash2, Volume2, VolumeX, Bookmark, X, Plus, Mic, MicOff, Clock, Copy, Check, ThumbsUp, ThumbsDown, FileText, ListCollapse, MessageSquare, Download, StopCircle, Speech, FileSpreadsheet, Edit3 } from 'lucide-react';
@@ -98,107 +98,111 @@ function CitedMarkdown({ content, sources, onCitationClick }: {
     onCitationClick?.(n);
   };
 
-  return (
-    <div className="relative">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          p: ({ children }) => (
-            <p className="mb-3 leading-[1.8] text-[14.5px]">
-              {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
-            </p>
-          ),
-          li: ({ children }) => (
-            <li className="mb-2 leading-[1.7] text-[14.5px]">
-              {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
-            </li>
-          ),
-          strong: ({ children }) => (
-            <strong className="font-extrabold text-brand-primary">
-              {children}
-            </strong>
-          ),
-          code: ({ children, className }) => {
-            const isBlock = className?.includes('language-');
-            if (isBlock) {
-              return (
-                <code className={`block bg-neutral-100 dark:bg-neutral-800 rounded-xl p-4 text-sm font-mono overflow-x-auto my-3 border border-neutral-200 dark:border-neutral-700 ${className || ''}`}>
-                  {children}
-                </code>
-              );
-            }
+  const renderedMarkdown = useMemo(() => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => (
+          <p className="mb-3 leading-[1.8] text-[14.5px]">
+            {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
+          </p>
+        ),
+        li: ({ children }) => (
+          <li className="mb-2 leading-[1.7] text-[14.5px]">
+            {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
+          </li>
+        ),
+        strong: ({ children }) => (
+          <strong className="font-extrabold text-brand-primary">
+            {children}
+          </strong>
+        ),
+        code: ({ children, className }) => {
+          const isBlock = className?.includes('language-');
+          if (isBlock) {
             return (
-              <code className="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded-md text-[13px] font-mono text-brand-primary dark:text-brand-primary-400 border border-neutral-200 dark:border-neutral-700">
+              <code className={`block bg-neutral-100 dark:bg-neutral-800 rounded-xl p-4 text-sm font-mono overflow-x-auto my-3 border border-neutral-200 dark:border-neutral-700 ${className || ''}`}>
                 {children}
               </code>
             );
-          },
-          h1: ({ children }) => (
-            <h1 className="text-xl font-black mt-8 mb-4 text-brand-primary uppercase tracking-tighter">
+          }
+          return (
+            <code className="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded-md text-[13px] font-mono text-brand-primary dark:text-brand-primary-400 border border-neutral-200 dark:border-neutral-700">
               {children}
-            </h1>
-          ),
-          h2: ({ children }) => (
-            <h2 className="text-lg font-extrabold mt-6 mb-3 text-brand-primary uppercase tracking-tight border-b border-neutral-100 dark:border-neutral-800 pb-2">
+            </code>
+          );
+        },
+        h1: ({ children }) => (
+          <h1 className="text-xl font-black mt-8 mb-4 text-brand-primary uppercase tracking-tighter">
+            {children}
+          </h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="text-lg font-extrabold mt-6 mb-3 text-brand-primary uppercase tracking-tight border-b border-neutral-100 dark:border-neutral-800 pb-2">
+            {children}
+          </h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="text-base font-black mt-4 mb-2 text-brand-accent uppercase tracking-tight">
+            {children}
+          </h3>
+        ),
+        ul: ({ children }) => (
+          <ul className="list-disc list-inside space-y-1 my-3 pl-2">
+            {children}
+          </ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="list-decimal list-inside space-y-1 my-3 pl-2">
+            {children}
+          </ol>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-4 border-brand-accent/50 pl-4 py-2 my-4 bg-brand-accent/5 dark:bg-brand-accent/10 rounded-r-xl italic text-neutral-600 dark:text-neutral-400">
+            {children}
+          </blockquote>
+        ),
+        table: ({ children }) => (
+          <div className="my-4 overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm">
+            <table className="w-full text-sm border-collapse">
               {children}
-            </h2>
-          ),
-          h3: ({ children }) => (
-            <h3 className="text-base font-black mt-4 mb-2 text-brand-accent uppercase tracking-tight">
-              {children}
-            </h3>
-          ),
-          ul: ({ children }) => (
-            <ul className="list-disc list-inside space-y-1 my-3 pl-2">
-              {children}
-            </ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="list-decimal list-inside space-y-1 my-3 pl-2">
-              {children}
-            </ol>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-4 border-brand-accent/50 pl-4 py-2 my-4 bg-brand-accent/5 dark:bg-brand-accent/10 rounded-r-xl italic text-neutral-600 dark:text-neutral-400">
-              {children}
-            </blockquote>
-          ),
-          table: ({ children }) => (
-            <div className="my-4 overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm">
-              <table className="w-full text-sm border-collapse">
-                {children}
-              </table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead className="bg-neutral-100 dark:bg-neutral-800">
-              {children}
-            </thead>
-          ),
-          th: ({ children }) => (
-            <th className="px-4 py-3 text-left text-[11px] font-black text-neutral-600 dark:text-neutral-300 uppercase tracking-wider border-b-2 border-neutral-200 dark:border-neutral-700">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="px-4 py-3 text-[13px] text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800">
-              {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
-            </td>
-          ),
-          tr: ({ children }) => (
-            <tr className="even:bg-neutral-50/50 dark:even:bg-neutral-900/30 hover:bg-brand-primary/5 dark:hover:bg-brand-primary/10 transition-colors">
-              {children}
-            </tr>
-          ),
-          em: ({ children }) => (
-            <em className="text-neutral-500 dark:text-neutral-400 not-italic text-[13.5px] font-medium">
-              ({children})
-            </em>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+            </table>
+          </div>
+        ),
+        thead: ({ children }) => (
+          <thead className="bg-neutral-100 dark:bg-neutral-800">
+            {children}
+          </thead>
+        ),
+        th: ({ children }) => (
+          <th className="px-4 py-3 text-left text-[11px] font-black text-neutral-600 dark:text-neutral-300 uppercase tracking-wider border-b-2 border-neutral-200 dark:border-neutral-700">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="px-4 py-3 text-[13px] text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800">
+            {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
+          </td>
+        ),
+        tr: ({ children }) => (
+          <tr className="even:bg-neutral-50/50 dark:even:bg-neutral-900/30 hover:bg-brand-primary/5 dark:hover:bg-brand-primary/10 transition-colors">
+            {children}
+          </tr>
+        ),
+        em: ({ children }) => (
+          <em className="text-neutral-500 dark:text-neutral-400 not-italic text-[13.5px] font-medium">
+            ({children})
+          </em>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  ), [content, sources]); // Only re-render markdown when content or sources change
+
+  return (
+    <div className="relative">
+      {renderedMarkdown}
 
       {/* Citation Hover Popover */}
       <AnimatePresence>

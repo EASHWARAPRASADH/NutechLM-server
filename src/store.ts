@@ -388,7 +388,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   uploadPlatformBackground: async (file) => {
     const formData = new FormData();
-    formData.append('background', file);
+    formData.append('file', file);
     try {
       const res = await api.post('/settings/background', formData);
       if (res.data.chatBackgroundUrl) {
