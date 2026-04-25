@@ -152,9 +152,9 @@ FOLLOW-UP QUESTIONS:`;
 }
 
 export async function generateSourceSummary(title: string, content: string): Promise<string> {
-  const prompt = `Please provide a concise, professional summary of this document: "${title}". 
-Focus on the key takeaways and main points. Keep it structured with bullet points if helpful. 
-Respond ONLY with the summary.
+  const prompt = `Provide a short, punchy, and highly precise executive summary of this document: "${title}". 
+Limit the response to exactly 3-4 high-impact bullet points covering only the most essential information. 
+Avoid introductory filler. Respond ONLY with the bullet points.
 
 DOCUMENT CONTENT:
 ${content.substring(0, 10000)}`;
@@ -165,26 +165,20 @@ ${content.substring(0, 10000)}`;
 export async function generateConsolidatedSummary(sources: any[], onToken?: any): Promise<string> {
   let context = "";
   sources.forEach((s, i) => {
-    context += `DOCUMENT [${i+1}]: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}\n\n`;
+    context += `DOC [${i+1}]: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}\n\n`;
   });
 
-  const prompt = `You are synthesizing a high-level research guide from multiple documents.
-Please provide a consolidated summary that connects the themes across all provided documents.
-Highlight commonalities and unique insights from each.
+  const prompt = `Generate a precise Research Briefing consolidating these documents. 
+Keep it short, professional, and devoid of fluff.
 
 DOCUMENTS:
 ${context}
 
-Structure the response as follows:
-# Consolidated Intelligence Report
-## Executive Synthesis
-(A one-paragraph overview)
-
-## Key Document Insights
-(Bullet points for each document)
-
-## Cross-Document Themes
-(Main themes found across the batch)`;
+Structure:
+# Precise Intelligence Briefing
+## Synthesis (2-3 sentences max)
+## Critical Findings (Top 5 bullet points across all docs)
+## Actionable Insight (One key takeaway)`;
 
   return generateChatResponse(prompt, [], [], onToken);
 }
