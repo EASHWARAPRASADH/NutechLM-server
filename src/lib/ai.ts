@@ -129,7 +129,8 @@ export async function processSource(title: string, content: string): Promise<{ t
 
 // Fallback stubs for other AI functions (can be expanded as needed)
 export async function generateFollowUpQuestions(chatHistory: any[]): Promise<string[]> {
-  const prompt = `Based on the following research conversation, generate 3-4 diverse, high-value follow-up questions that a researcher might ask to delve deeper into the topic. 
+  const prompt = `Based on the following research conversation, generate 3-4 concise, high-value follow-up questions. 
+Each question should be professional, focused, and under 12-15 words.
 Return ONLY a JSON array of strings. Do not include any other text.
 
 HISTORY:
