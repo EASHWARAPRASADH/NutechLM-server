@@ -23,6 +23,7 @@ interface AppState {
   previewSourceId: string | null;
   isGuest: boolean;
   isDarkMode: boolean;
+  isGeneratingSummary: boolean;
 
   initSession: () => Promise<void>;
   fetchMe: () => Promise<void>;
@@ -129,11 +130,13 @@ const mapNotebook = (n: any): Notebook => ({
   })),
   chatHistory: (n.chatHistory || n.chat_history || []).map((c: any) => ({
     ...c,
-    createdAt: c.created_at || c.createdAt,
-    feedbackType: c.feedback_type,
-    feedbackText: c.feedback_text
+    createdAt: c.created_at || c.createdAt
   })),
   selectedSourceIds: n.selectedSourceIds || [],
+  emoji: n.emoji,
+  chatGoal: n.chatGoal || n.chat_history_goal || 'default',
+  customGoal: n.customGoal || n.custom_goal || '',
+  chatLength: n.chatLength || n.chat_history_length || 'default',
   sourcesCount: n.sourcesCount,
   notesCount: n.notesCount
 });
@@ -147,6 +150,7 @@ export const useStore = create<AppState>((set, get) => ({
   users: [],
   isLoading: true,
   isGuest: false,
+  isGeneratingSummary: false,
   activeNotebookId: null,
   highlightedSourceId: null,
   draggedSource: null,
@@ -299,12 +303,28 @@ export const useStore = create<AppState>((set, get) => ({
   updateNotebook: async (id, updates) => { await api.patch(`/notebooks/${id}`, updates); await get().fetchNotebooks(); await get().fetchNotebookDetails(id); },
   generateNotebookSummary: async (id) => {
     try {
+      set({ isGeneratingSummary: true });
       const res = await api.post(`/ai/notebooks/${id}/summary`);
-      console.log(`[Store] Summary generation response for ${id}:`, res.data);
+      const summary = res.data.summary || "";
+      const title = res.data.title;
+      
+      // Update local state immediately for instant UI feedback
+      set((state) => ({
+        notebooks: state.notebooks.map(n => n.id === id ? { ...n, description: summary, title: title || n.title } : n)
+      }));
+
+      // Also generate a relevant emoji based on the summary
+      const { generateNotebookEmoji } = await import('./lib/ai');
+      const emoji = await generateNotebookEmoji(summary);
+      
+      await api.patch(`/notebooks/${id}`, { emoji });
+      
       await get().fetchNotebooks();
       await get().fetchNotebookDetails(id);
     } catch (e) {
       console.error('Failed to generate notebook summary:', e);
+    } finally {
+      set({ isGeneratingSummary: false });
     }
   },
   deleteNotebook: async (id) => { await api.delete(`/notebooks/${id}`); await get().fetchNotebooks(); },
@@ -363,7 +383,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateChatFeedback: async (nbId, messageId, feedbackType, feedbackText) => {
-    await api.patch(`/notebooks/${nbId}/chat/${messageId}/feedback`, { feedbackType, feedbackText });
+    await api.patch(`/feedback/${messageId}`, { feedbackType, feedbackText, notebookId: nbId });
     await get().fetchNotebookDetails(nbId);
   },
 

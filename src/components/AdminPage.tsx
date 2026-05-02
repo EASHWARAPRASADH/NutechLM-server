@@ -50,10 +50,10 @@ export default function AdminPage() {
     }
   }, [currentUser, navigate]);
 
-  // Refresh users on tab change
+  // Refresh users and notebooks for stats
   useEffect(() => {
     if (currentUser?.role === 'admin') {
-      if (activeTab === 'users') {
+      if (activeTab === 'overview' || activeTab === 'users' || activeTab === 'ai') {
         fetchUsers();
         fetchNotebooks();
       }
@@ -203,8 +203,8 @@ export default function AdminPage() {
   };
 
   const stats = useMemo(() => {
-    const totalSources = notebooks.reduce((acc, n) => acc + ((n as any).sourcesCount || 0), 0);
-    const totalNotes = notebooks.reduce((acc, n) => acc + ((n as any).notesCount || 0), 0);
+    const totalSources = notebooks.reduce((acc, n) => acc + Number((n as any).sourcesCount || 0), 0);
+    const totalNotes = notebooks.reduce((acc, n) => acc + Number((n as any).notesCount || 0), 0);
     const activeUsers = users.length;
     
     return [
@@ -1344,7 +1344,7 @@ export default function AdminPage() {
                         {feedbackData.map((f: any) => (
                           <tr key={f.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
                             <td className="py-7 px-10">
-                              {f.feedback_type === 'up' ? (
+                              {f.feedbackType === 'up' ? (
                                 <div className="w-10 h-10 bg-emerald-50 text-emerald-500 dark:bg-emerald-900/20 rounded-xl flex items-center justify-center">
                                   <ThumbsUp size={18} />
                                 </div>
@@ -1356,16 +1356,16 @@ export default function AdminPage() {
                             </td>
                             <td className="py-7 px-10">
                               <div className="flex flex-col gap-1">
-                                <span className="font-bold text-neutral-900 dark:text-white text-sm">{f.user_email}</span>
-                                <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{f.notebook_title}</span>
+                                <span className="font-bold text-neutral-900 dark:text-white text-sm">{f.userEmail}</span>
+                                <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{f.notebookTitle}</span>
                               </div>
                             </td>
                             <td className="py-7 px-10">
-                              <p className="text-xs text-neutral-600 dark:text-neutral-300 font-medium italic max-w-xs">{f.feedback_text || 'No comment provided'}</p>
+                              <p className="text-xs text-neutral-600 dark:text-neutral-300 font-medium italic max-w-xs">{f.feedbackText || 'No comment provided'}</p>
                             </td>
                             <td className="py-7 px-10">
                               <p className="text-[10px] text-neutral-400 font-mono bg-neutral-50 dark:bg-neutral-800 p-2.5 rounded-xl max-w-xs truncate">{f.content}</p>
-                              <span className="text-[8px] font-black uppercase tracking-widest text-neutral-400 mt-2 block">{format(Number(f.created_at || Date.now()), 'MMM d, yyyy HH:mm')}</span>
+                              <span className="text-[8px] font-black uppercase tracking-widest text-neutral-400 mt-2 block">{format(Number(f.createdAt || Date.now()), 'MMM d, yyyy HH:mm')}</span>
                             </td>
                           </tr>
                         ))}

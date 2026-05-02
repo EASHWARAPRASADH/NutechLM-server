@@ -48,6 +48,10 @@ export interface Notebook {
   selectedSourceIds: string[];
   notes: Note[];
   chatHistory: ChatMessage[];
+  emoji?: string;
+  chatGoal?: 'default' | 'learning_guide' | 'custom';
+  customGoal?: string;
+  chatLength?: 'default' | 'longer' | 'shorter';
   createdAt: number;
   updatedAt: number;
   sourcesCount?: number;

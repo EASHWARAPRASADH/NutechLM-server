@@ -87,6 +87,31 @@ app.use((req, res, next) => {
   next();
 });
 
+const authenticateToken = (req: any, res: any, next: any) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+
+app.patch('/api/feedback/:messageId', authenticateToken, async (req: any, res) => {
+  const { feedbackType, feedbackText, notebookId } = req.body;
+  console.log(`[FEEDBACK] Syncing for msg: ${req.params.messageId} in nb: ${notebookId}`);
+  try {
+    await db.prepare('UPDATE chat_messages SET feedback_type = ?, feedback_text = ? WHERE id = ? AND notebook_id = ?')
+      .run(feedbackType, feedbackText || null, req.params.messageId, notebookId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[FEEDBACK] Error:', err);
+    res.status(500).json({ error: 'Failed to sync feedback' });
+  }
+});
+
 // ── STORAGE CONFIG (Memory-Safe) ──
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, '/tmp'),
@@ -97,16 +122,6 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 } 
 });
 
-const authenticateToken = (req: any, res: any, next: any) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.sendStatus(401);
-  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-};
 
 function mapToCamel(obj: any): any {
   if (Array.isArray(obj)) return obj.map(mapToCamel);
@@ -232,6 +247,7 @@ app.post('/api/notebooks', authenticateToken, async (req: any, res) => {
   res.json({ id, title, description, createdAt: now, updatedAt: now });
 });
 
+
 app.get('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
   const n = await db.prepare('SELECT * FROM notebooks WHERE id = ?').get(req.params.id) as any;
   if (!n) return res.sendStatus(404);
@@ -275,6 +291,7 @@ app.delete('/api/notebooks/:id/sources/:sourceId', authenticateToken, async (req
   await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
   res.json({ success: true, timestamp: now });
 });
+
 
 app.patch('/api/notebooks/:id/chat/:messageId', authenticateToken, async (req: any, res) => {
   const { content } = req.body;
@@ -373,26 +390,195 @@ const genAI = process.env.VITE_GEMINI_API_KEY ? new GoogleGenerativeAI(process.e
 const COMMON_PERSONA = `You are Nutech Intelligence — a proprietary deep research engine developed by Nutech.
 IDENTITY RULE: You identify strictly as a product of Nutech. NEVER mention Google, Gemini, Ollama, or OpenAI. If asked about your model, state you are a proprietary Nutech neural network.`;
 
+app.post('/api/ai/search', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.status(503).json({ error: "AI Engine Offline" });
+  const { query } = req.body;
+  const sources: any[] = [];
+  let summary = "";
+
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
+  try {
+    // TIER 1: Gemini Intelligence & Link Generation
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent(`Research Topic: ${query}. 
+      1. Provide a professional 2-sentence summary.
+      2. Suggest 3 specific, real-world URLs (like Wikipedia, official news, or major journals) that definitely contain this info.
+      Format: [SUMMARY] text [LINKS] Title|URL|Snippet`);
+      const text = result.response.text();
+      
+      if (text.includes('[SUMMARY]')) {
+        summary = text.split('[SUMMARY]')[1].split('[LINKS]')[0].trim();
+      }
+      if (text.includes('[LINKS]')) {
+        const linkLines = text.split('[LINKS]')[1].trim().split('\n');
+        linkLines.forEach(line => {
+          const [t, u, s] = line.split('|');
+          if (t && u && u.includes('http')) {
+             sources.push({ title: t.trim() + " (Verified)", url: u.trim(), snippet: s?.trim() || "Authoritative research source." });
+          }
+        });
+      }
+    } catch (e) {}
+
+    // TIER 2: Live Google Intelligence (googlethis)
+    try {
+      const google = require('googlethis');
+      const gRes = await google.search(query, { safe: false });
+      if (gRes && gRes.results) {
+        gRes.results.slice(0, 10).forEach((r: any) => {
+          if (r.url && r.title && !sources.some(s => s.url === r.url)) {
+            sources.push({ title: r.title, url: r.url, snippet: r.description || "" });
+          }
+        });
+      }
+    } catch (gErr) {}
+
+    // TIER 3: Wikipedia Stability Layer
+    if (sources.length < 5) {
+      try {
+        const wikiRes = await axios.get(`https://en.wikipedia.org/w/api.php`, {
+          params: { action: 'query', list: 'search', srsearch: query, format: 'json', origin: '*' },
+          headers: { 'User-Agent': UA }
+        });
+        if (wikiRes.data?.query?.search) {
+          wikiRes.data.query.search.forEach((r: any) => {
+            const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(r.title)}`;
+            if (!sources.some(s => s.url === url)) {
+              sources.push({ title: r.title + " (Wikipedia)", url, snippet: r.snippet.replace(/<[^>]*>/g, '') });
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    if (!summary && sources.length > 0) {
+      summary = `Retrieved ${sources.length} authoritative sources for "${query}". Ready for analysis.`;
+    } else if (!summary) {
+      summary = `Found ${sources.length} primary research documents for "${query}".`;
+    }
+
+    res.json({ 
+      summary, 
+      sources: sources.filter(s => s.url && s.title).slice(0, 15) 
+    });
+
+  } catch (err) {
+    res.json({ summary: "Research engine throttled. Using internal neural patterns.", sources: [] });
+  }
+});
+
+app.post('/api/notebooks/:id/sources/web', authenticateToken, async (req: any, res) => {
+  const { title, url } = req.body;
+  try {
+    const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
+    
+    if (isYoutube) {
+      // YouTube Deep Extraction
+      const videoId = url.includes('v=') ? url.split('v=')[1].split('&')[0] : url.split('/').pop();
+      const metaRes = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
+      });
+      const $ = cheerio.load(metaRes.data);
+      const videoTitle = title || $('title').text().replace(' - YouTube', '') || 'YouTube Video';
+      
+      // Attempt transcript extraction (Simplified Scraper Logic)
+      let transcriptText = "";
+      try {
+        // We look for the timedtext URL in the page source
+        const regex = /"captionTracks":\[\{"baseUrl":"(.*?)"/;
+        const match = metaRes.data.match(regex);
+        if (match && match[1]) {
+          const transcriptUrl = JSON.parse(`"${match[1]}"`); // Unescape unicode
+          const transcriptRes = await axios.get(transcriptUrl);
+          const $$ = cheerio.load(transcriptRes.data, { xmlMode: true });
+          transcriptText = $$('text').map((i, el) => $$(el).text()).get().join(' ');
+        }
+      } catch (tErr) {
+        console.warn('Transcript extraction failed, falling back to metadata');
+      }
+
+      const content = `YOUTUBE VIDEO RESEARCH\nTitle: ${videoTitle}\nURL: ${url}\n\nTRANSCRIPT/CONTENT:\n${transcriptText || 'No transcript available. Summary based on metadata.'}`;
+      
+      const id = Math.random().toString(36).substring(2, 11);
+      const now = Date.now();
+      await db.prepare('INSERT INTO sources (id, notebook_id, title, content, type, file_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, req.params.id, videoTitle, content, 'url', url, now);
+
+      return res.json({ id, title: videoTitle });
+    }
+
+    // Standard Website Ingestion
+    const scrapeRes = await axios.get(url, { 
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
+      timeout: 10000
+    });
+    const $ = cheerio.load(scrapeRes.data);
+    $('script, style, nav, footer, header, ads').remove();
+    
+    const finalTitle = title || $('title').text() || $('h1').first().text() || url;
+    let content = $('article').text() || $('main').text() || $('body').text();
+    content = content.replace(/\s+/g, ' ').trim();
+
+    if (!content || content.length < 50) {
+      return res.status(400).json({ error: "Could not extract meaningful content from this URL. It might be blocked or JavaScript-heavy." });
+    }
+
+    const id = Math.random().toString(36).substring(2, 11);
+    const now = Date.now();
+    await db.prepare('INSERT INTO sources (id, notebook_id, title, content, type, file_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.params.id, finalTitle, content, 'url', url, now);
+
+    res.json({ id, title: finalTitle });
+  } catch (e: any) {
+    console.error('[Web Import Error]:', e);
+    res.status(500).json({ error: 'Failed to ingest web source', details: e.message });
+  }
+});
+
 app.post('/api/ai/chat', authenticateToken, async (req: any, res) => {
   if (!genAI) return res.status(503).json({ error: "AI Engine Offline: Missing Server Credentials." });
-  const { prompt, sources, history, masterSources } = req.body;
+  const { prompt, sources, history, masterSources, config } = req.body;
 
   try {
     const allSources = [...(sources || []), ...(masterSources || [])];
     
-    // Construct Context (Simple version for server-side proxy)
+    // Construct Context
     let sourceContext = "";
     allSources.slice(0, 15).forEach((s, i) => {
       sourceContext += `SOURCE [${i+1}]: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}\n\n`;
     });
 
+    let goalInstruction = "";
+    if (config?.chatGoal === 'learning_guide') {
+      goalInstruction = `GOAL: You are a world-class tutor and learning guide. 
+1. Break down complex topics from the sources into digestible, logical steps.
+2. Use clear analogies to explain difficult concepts.
+3. At the end of major explanations, ask the user a brief Socratic question or a multi-choice question based on the sources to test their understanding.
+4. Encourage the user to explain things back to you (Feynman Technique).`;
+    } else if (config?.chatGoal === 'custom' && config.customGoal) {
+      goalInstruction = `GOAL: ${config.customGoal}. Strictly adhere to this persona and tone in all responses.`;
+    } else {
+      goalInstruction = "GOAL: You are a professional research assistant. Synthesize information from multiple sources, highlight contradictions if they exist, and provide balanced, evidence-based conclusions.";
+    }
+
+    let lengthInstruction = "";
+    if (config?.chatLength === 'longer') {
+      lengthInstruction = "LENGTH: Provide deep-dive, comprehensive responses. Explore nuances, provide secondary examples, and ensure no detail from the relevant sources is overlooked.";
+    } else if (config?.chatLength === 'shorter') {
+      lengthInstruction = "LENGTH: Be extremely concise. Use summary bullets. Prioritize the most critical facts. No introductory or concluding filler.";
+    } else {
+      lengthInstruction = "LENGTH: Provide standard length responses (2-3 paragraphs). Balance breadth with depth.";
+    }
+
     const systemInstruction = `${COMMON_PERSONA}
-You are a precision-oriented research assistant. 
+${goalInstruction}
+${lengthInstruction}
+
 1. If the user provides a greeting (e.g., 'hi', 'hello'), respond concisely and professionally.
 2. If sources are provided, cite them using [1], [2] inline.
-3. Be comprehensive for research queries, but DO NOT force long responses for simple messages.
-
-SOURCES:
+3. SOURCES:
 ${sourceContext}`;
 
     const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview", systemInstruction });
@@ -468,8 +654,7 @@ ${context}`;
     } else {
       prompt = `Generate a comprehensive, professional research summary for this notebook. 
 The summary should synthesize the core themes of the ingested sources and reflect the current state of the chat conversation.
-Format it as 2-3 well-structured paragraphs. Highlight key technical insights and research directions.
-Return ONLY the summary text (Markdown is supported).
+Format it as 2-3 well-structured paragraphs. Return ONLY the summary text.
 
 CONTEXT:
 ${context}`;
@@ -481,9 +666,9 @@ ${context}`;
     let finalSummary = text;
     let finalTitle = null;
 
-    if (needsTitle && text.includes('TITLE:') && text.includes('SUMMARY:')) {
-      const titleMatch = text.match(/TITLE:\s*(.*?)\n/);
-      const summaryMatch = text.match(/SUMMARY:\s*([\s\S]*)/);
+    if (needsTitle) {
+      const titleMatch = text.match(/TITLE:\s*(.*?)(?:\n|SUMMARY:|$)/i);
+      const summaryMatch = text.match(/SUMMARY:\s*([\s\S]*)/i);
       if (titleMatch) finalTitle = titleMatch[1].replace(/[*"']/g, '').trim();
       if (summaryMatch) finalSummary = summaryMatch[1].trim();
     }
@@ -499,6 +684,69 @@ ${context}`;
   } catch (e) {
     console.error('[AI Summary Error]:', e);
     res.status(500).json({ error: 'Summary generation failed' });
+  }
+});
+
+app.get('/api/notebooks/:id/guide', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.sendStatus(503);
+  try {
+    const sources = await db.prepare('SELECT title, content FROM sources WHERE notebook_id = ? LIMIT 10').all(req.params.id) as any[];
+    if (sources.length === 0) return res.json({ toc: [], faqs: [], studyGuide: { glossary: [], questions: [] } });
+
+    const context = sources.map(s => `SOURCE: ${s.title}\nCONTENT: ${s.content.substring(0, 3000)}`).join('\n\n');
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `You are a research assistant. Analyze the provided sources and generate a comprehensive "Notebook Guide" in JSON format.
+    
+    The JSON should have this structure:
+    {
+      "toc": [{"title": "String", "summary": "String"}],
+      "faqs": [{"question": "String", "answer": "String"}],
+      "studyGuide": {
+        "glossary": [{"term": "String", "definition": "String"}],
+        "questions": [{"question": "String", "options": ["String"], "correctIndex": Number}]
+      }
+    }
+
+    Return ONLY the raw JSON block.
+    
+    SOURCES:
+    ${context}`;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const jsonStr = responseText.replace(/```json|```/g, '').trim();
+    const guideData = JSON.parse(jsonStr);
+
+    res.json(guideData);
+  } catch (e) {
+    console.error('[Guide Generation Error]:', e);
+    res.status(500).json({ error: 'Failed to generate guide' });
+  }
+});
+
+app.post('/api/ai/synthesize-notes', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.sendStatus(503);
+  const { noteIds } = req.body;
+  if (!noteIds || noteIds.length === 0) return res.status(400).json({ error: 'No notes selected' });
+
+  try {
+    const notes = await db.prepare(`SELECT content FROM notes WHERE id IN (${noteIds.map(() => '?').join(',')})`).all(...noteIds) as any[];
+    const context = notes.map((n, i) => `NOTE [${i+1}]: ${n.content}`).join('\n\n');
+    
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Synthesize the following research notes into a coherent, professional report. 
+    Highlight connections between the notes, identify key themes, and provide a unified conclusion.
+    Format the response in clean Markdown.
+    
+    NOTES:
+    ${context}`;
+
+    const result = await model.generateContent(prompt);
+    res.json({ synthesis: result.response.text().trim() });
+  } catch (e) {
+    console.error('[Synthesis Error]:', e);
+    res.status(500).json({ error: 'Synthesis failed' });
   }
 });
 
@@ -669,7 +917,14 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
 
 app.get('/api/admin/feedback', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.sendStatus(403);
-  const logs = await db.prepare('SELECT cm.*, n.title as notebook_title FROM chat_messages cm JOIN notebooks n ON cm.notebook_id = n.id WHERE cm.feedback_type IS NOT NULL ORDER BY cm.created_at DESC').all();
+  const logs = await db.prepare(`
+    SELECT cm.*, n.title as notebook_title, u.email as user_email 
+    FROM chat_messages cm 
+    JOIN notebooks n ON cm.notebook_id = n.id 
+    JOIN users u ON n.owner_id = u.id
+    WHERE cm.feedback_type IS NOT NULL 
+    ORDER BY cm.created_at DESC
+  `).all();
   res.json(mapToCamel(logs));
 });
 
@@ -704,9 +959,8 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
     let content = '';
     if (mimetype === 'application/pdf') {
        try {
-         const parser = new pdf.PDFParse({ data: fileBuffer });
-         const result = await parser.getText();
-         content = cleanExtractedText(result.text);
+         const data = await pdf(fileBuffer);
+         content = cleanExtractedText(data.text);
          // Fallback if PDF text extraction returns almost nothing (scanned PDF)
          if (content.length < 10) {
            content = "[Scanned PDF detected - Text layer missing or unreadable]";

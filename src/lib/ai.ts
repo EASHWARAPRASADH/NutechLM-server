@@ -65,7 +65,8 @@ export async function generateChatResponse(
   onToken?: (token: string) => void,
   useHighThinking: boolean = false,
   masterSources: { title: string; content: string; type: string }[] = [],
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  config?: { chatGoal?: string; chatLength?: string; customGoal?: string }
 ): Promise<string> {
   const token = localStorage.getItem('nutech-vault-token');
   const response = await fetch('/api/ai/chat', {
@@ -74,7 +75,7 @@ export async function generateChatResponse(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ prompt, sources, history, masterSources, useHighThinking }),
+    body: JSON.stringify({ prompt, sources, history, masterSources, useHighThinking, config }),
     signal: abortSignal
   });
 
@@ -211,5 +212,21 @@ ${notes.map(n => `TITLE: ${n.title}\nCONTENT: ${n.content}`).join('\n\n')}`;
 }
 
 export async function transcribeImageBest(dataUrl: string): Promise<string> { return "Vision is currently disabled in Bridge Mode."; }
+
+export async function generateNotebookEmoji(content: string): Promise<string> {
+  const prompt = `Based on the following content, return ONLY a single relevant emoji that represents the topic. Do not include any text, just the emoji.
+  
+  CONTENT:
+  ${content.substring(0, 2000)}`;
+
+  try {
+    const emoji = await generateChatResponse(prompt, [], []);
+    // Simple regex to extract the first emoji if the AI included text
+    const emojiMatch = emoji.match(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/u);
+    return emojiMatch ? emojiMatch[0] : "📜";
+  } catch (e) {
+    return "📜";
+  }
+}
 
 export type { };
