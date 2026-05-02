@@ -4,13 +4,14 @@ import { Notebook, Source } from '../types';
 import { useStore } from '../store';
 import { 
   Plus, Search, FileText, Globe, Image as ImageIcon, 
-  Trash2, ChevronLeft, Upload, X, Edit3,
+  Trash2, ChevronLeft, Upload, X, Edit3, Wind,
   Maximize2, LayoutGrid, List, FilePlus, AlertCircle, Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateSourceSummary, generateConsolidatedSummary } from '../lib/ai';
 import axios from 'axios';
+import DiscoverSourcesModal from './DiscoverSourcesModal';
 
 export default function Sidebar({ notebook }: { notebook: Notebook }) {
   const navigate = useNavigate();
@@ -28,11 +29,13 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
     addChatMessage,
     updateNotebook,
     updateSource,
+    generateNotebookSummary,
     masterSources,
     isGuest
   } = useStore();
   
   const [isAdding, setIsAdding] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -124,6 +127,9 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
         window.dispatchEvent(new CustomEvent('nutech:chat-loading', { detail: { isActive: false } }));
       }
       
+      // Attempt auto-summary update
+      await generateNotebookSummary(notebook.id);
+      
       setUploadError(null);
       setUploadProgress(0);
     } catch (err) {
@@ -175,6 +181,9 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
       } catch (sumErr) {
         console.error('Auto-summary failed:', sumErr);
       }
+      
+      // Attempt auto-summary update
+      await generateNotebookSummary(notebook.id);
       
       
     } catch (err) {
@@ -235,7 +244,7 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
           </h1>
           <Edit3 size={14} className="text-neutral-300 opacity-0 group-hover/nb:opacity-100 transition-opacity" />
         </div>
-        <p className="text-[10px] font-black text-brand-accent uppercase tracking-[0.2em] mb-6">Neural Vault • v3.0</p>
+        <p className="text-[10px] font-black text-brand-accent uppercase tracking-[0.2em] mb-6">Neural Vault • v3.1</p>
 
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-brand-primary transition-colors" size={16} />
@@ -516,10 +525,25 @@ export default function Sidebar({ notebook }: { notebook: Notebook }) {
                   <button type="submit" disabled={isUploading} className="w-full bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white py-5 rounded-3xl font-black uppercase tracking-widest text-[11px] hover:bg-neutral-900 hover:text-white transition-all disabled:opacity-50">Scrape Intelligence</button>
                 </form>
 
-
+                <div className="relative flex justify-center text-[10px] uppercase font-black tracking-[0.4em] text-neutral-300 dark:text-neutral-700"><span>or</span></div>
+                <button 
+                  onClick={() => { setIsAdding(false); setIsDiscovering(true); }}
+                  className="w-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-brand-primary py-5 rounded-3xl font-black uppercase tracking-widest text-[11px] hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all flex justify-center items-center gap-2 border border-blue-100 dark:border-blue-900/30"
+                >
+                  <Search size={16} /> Discover Web Sources
+                </button>
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDiscovering && (
+          <DiscoverSourcesModal 
+            notebookId={notebook.id} 
+            onClose={() => setIsDiscovering(false)} 
+          />
         )}
       </AnimatePresence>
     </motion.aside>

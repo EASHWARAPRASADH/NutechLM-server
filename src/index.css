@@ -101,3 +101,13 @@ body {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+.prose-override-summary p {
+  @apply mb-4 last:mb-0;
+}
+.prose-override-summary ul, .prose-override-summary ol {
+  @apply my-4 pl-5 list-disc;
+}
+.prose-override-summary h1, .prose-override-summary h2, .prose-override-summary h3 {
+  @apply font-bold mt-6 mb-2 text-neutral-900 dark:text-neutral-100;
+}

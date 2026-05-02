@@ -40,11 +40,14 @@ interface AppState {
   fetchNotebooks: () => Promise<void>;
   fetchNotebookDetails: (id: string) => Promise<void>;
   setActiveNotebook: (id: string | null) => void;
-  createNotebook: (title: string) => Promise<void>;
+  createNotebook: (title?: string) => Promise<string>;
   updateNotebook: (id: string, updates: Partial<Notebook>) => Promise<void>;
+  generateNotebookSummary: (id: string) => Promise<void>;
   deleteNotebook: (id: string) => Promise<void>;
 
   addSource: (notebookId: string, source: Omit<Source, 'id' | 'createdAt'>) => Promise<void>;
+  searchWeb: (query: string) => Promise<{summary: string, sources: any[]}>;
+  addWebSource: (notebookId: string, title: string, url: string) => Promise<void>;
   updateSource: (notebookId: string, sourceId: string, updates: Partial<Source>) => Promise<void>;
   deleteSource: (notebookId: string, sourceId: string) => Promise<void>;
   toggleSourceSelection: (notebookId: string, sourceId: string) => void;
@@ -288,11 +291,33 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setActiveNotebook: (id) => set({ activeNotebookId: id }),
-  createNotebook: async (title) => { await api.post('/notebooks', { title }); await get().fetchNotebooks(); },
+  createNotebook: async (title) => { 
+    const res = await api.post('/notebooks', { title: title || 'Untitled Notebook' }); 
+    await get().fetchNotebooks(); 
+    return res.data.id;
+  },
   updateNotebook: async (id, updates) => { await api.patch(`/notebooks/${id}`, updates); await get().fetchNotebooks(); await get().fetchNotebookDetails(id); },
+  generateNotebookSummary: async (id) => {
+    try {
+      const res = await api.post(`/ai/notebooks/${id}/summary`);
+      console.log(`[Store] Summary generation response for ${id}:`, res.data);
+      await get().fetchNotebooks();
+      await get().fetchNotebookDetails(id);
+    } catch (e) {
+      console.error('Failed to generate notebook summary:', e);
+    }
+  },
   deleteNotebook: async (id) => { await api.delete(`/notebooks/${id}`); await get().fetchNotebooks(); },
 
   addSource: async (nbId, source) => { await api.post(`/notebooks/${nbId}/sources`, source); await get().fetchNotebookDetails(nbId); },
+  searchWeb: async (query) => {
+    const res = await api.post('/ai/search', { query });
+    return res.data;
+  },
+  addWebSource: async (nbId, title, url) => {
+    await api.post(`/notebooks/${nbId}/sources/web`, { title, url });
+    await get().fetchNotebookDetails(nbId);
+  },
   updateSource: async (nbId, sId, updates) => { await api.patch(`/notebooks/${nbId}/sources/${sId}`, updates); await get().fetchNotebookDetails(nbId); },
   deleteSource: async (nbId, sId) => { await api.delete(`/notebooks/${nbId}/sources/${sId}`); await get().fetchNotebookDetails(nbId); },
 

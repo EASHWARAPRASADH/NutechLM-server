@@ -44,7 +44,13 @@ export default function NotebookView() {
     if (notebook && currentUser && !isAdmin && notebook.ownerId !== currentUser.id) {
        navigate('/dashboard');
     }
-  }, [notebook, currentUser, isAdmin, navigate]);
+    
+    // Auto-summary trigger: If we enter a notebook that already has sources, trigger brief generation
+    if (notebook && notebook.sources.length > 0 && !notebook.description) {
+      console.log(`[NotebookView] Auto-triggering summary for notebook: ${notebook.id}`);
+      useStore.getState().generateNotebookSummary(notebook.id);
+    }
+  }, [notebook?.id, notebook?.title, notebook?.sources.length, currentUser, isAdmin, navigate]);
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -120,7 +126,6 @@ export default function NotebookView() {
             </motion.button>
           </div>
           <div className="flex items-center gap-2">
-            <Wind className="text-brand-primary" size={18} />
             <h1 className="font-bold tracking-tighter text-neutral-800 dark:text-white uppercase text-sm">{notebook.title}</h1>
           </div>
           

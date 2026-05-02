@@ -284,6 +284,73 @@ app.patch('/api/notebooks/:id/chat/:messageId', authenticateToken, async (req: a
   res.json({ success: true, updatedAt: now });
 });
 
+app.patch('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
+  const { title, description } = req.body;
+  const now = Date.now();
+  const updates: string[] = [];
+  const params: any[] = [];
+  
+  if (title !== undefined) { updates.push('title = ?'); params.push(title); }
+  if (description !== undefined) { updates.push('description = ?'); params.push(description); }
+  
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  
+  params.push(now, req.params.id);
+  await db.prepare(`UPDATE notebooks SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`).run(...params);
+  res.json({ success: true, updatedAt: now });
+});
+
+app.patch('/api/notebooks/:id/sources/:sourceId', authenticateToken, async (req: any, res) => {
+  const { title, content } = req.body;
+  const now = Date.now();
+  const updates: string[] = [];
+  const params: any[] = [];
+  
+  if (title !== undefined) { updates.push('title = ?'); params.push(title); }
+  if (content !== undefined) { updates.push('content = ?'); params.push(content); }
+  
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  
+  params.push(req.params.sourceId, req.params.id);
+  await db.prepare(`UPDATE sources SET ${updates.join(', ')} WHERE id = ? AND notebook_id = ?`).run(...params);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ success: true });
+});
+
+app.get('/api/notebooks/:id/notes', authenticateToken, async (req: any, res) => {
+  const notes = await db.prepare('SELECT * FROM notes WHERE notebook_id = ? ORDER BY created_at DESC').all(req.params.id);
+  res.json(mapToCamel(notes));
+});
+
+app.post('/api/notebooks/:id/notes', authenticateToken, async (req: any, res) => {
+  const { title, content } = req.body;
+  const id = uuidv4();
+  const now = Date.now();
+  await db.prepare('INSERT INTO notes (id, notebook_id, title, content, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(id, req.params.id, title, content, now);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ id, title, content, createdAt: now });
+});
+
+app.patch('/api/notebooks/:id/notes/:noteId', authenticateToken, async (req: any, res) => {
+  const { title, content } = req.body;
+  const updates: string[] = [];
+  const params: any[] = [];
+  if (title !== undefined) { updates.push('title = ?'); params.push(title); }
+  if (content !== undefined) { updates.push('content = ?'); params.push(content); }
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  params.push(req.params.noteId, req.params.id);
+  await db.prepare(`UPDATE notes SET ${updates.join(', ')} WHERE id = ? AND notebook_id = ?`).run(...params);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(Date.now(), req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/notebooks/:id/notes/:noteId', authenticateToken, async (req: any, res) => {
+  await db.prepare('DELETE FROM notes WHERE id = ? AND notebook_id = ?').run(req.params.noteId, req.params.id);
+  await db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(Date.now(), req.params.id);
+  res.sendStatus(204);
+});
+
 app.delete('/api/notebooks/:id', authenticateToken, async (req: any, res) => {
   try {
     const n = await db.prepare('SELECT owner_id FROM notebooks WHERE id = ?').get(req.params.id) as any;
@@ -367,6 +434,71 @@ app.post('/api/ai/title', authenticateToken, async (req: any, res) => {
     res.json({ title: result.response.text().trim().replace(/[*"']/g, '') });
   } catch (e) {
     res.json({ title: 'Research Note' });
+  }
+});
+
+app.post('/api/ai/notebooks/:id/summary', authenticateToken, async (req: any, res) => {
+  if (!genAI) return res.sendStatus(503);
+  try {
+    const notebook = await db.prepare('SELECT title FROM notebooks WHERE id = ?').get(req.params.id) as any;
+    const needsTitle = !notebook || notebook.title.toLowerCase().includes('untitled notebook');
+
+    const sources = await db.prepare('SELECT title, content FROM sources WHERE notebook_id = ? LIMIT 10').all(req.params.id) as any[];
+    const lastSummary = await db.prepare('SELECT content FROM chat_messages WHERE notebook_id = ? AND role = ? ORDER BY created_at DESC LIMIT 1').get(req.params.id, 'model') as any;
+    
+    let context = sources.map(s => `SOURCE: ${s.title}\nCONTENT: ${s.content.substring(0, 500)}`).join('\n\n');
+    if (lastSummary) {
+      context += `\n\nLATEST CHAT INSIGHT: ${lastSummary.content.substring(0, 1000)}`;
+    }
+    
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    
+    let prompt = "";
+    if (needsTitle) {
+      prompt = `You are a research assistant. Analyze the following context and provide:
+1. A concise 3-5 word professional title for this notebook.
+2. A comprehensive 2-3 paragraph research summary.
+
+Format your response EXACTLY like this:
+TITLE: [Your Title Here]
+SUMMARY: [Your Summary Here]
+
+CONTEXT:
+${context}`;
+    } else {
+      prompt = `Generate a comprehensive, professional research summary for this notebook. 
+The summary should synthesize the core themes of the ingested sources and reflect the current state of the chat conversation.
+Format it as 2-3 well-structured paragraphs. Highlight key technical insights and research directions.
+Return ONLY the summary text (Markdown is supported).
+
+CONTEXT:
+${context}`;
+    }
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    
+    let finalSummary = text;
+    let finalTitle = null;
+
+    if (needsTitle && text.includes('TITLE:') && text.includes('SUMMARY:')) {
+      const titleMatch = text.match(/TITLE:\s*(.*?)\n/);
+      const summaryMatch = text.match(/SUMMARY:\s*([\s\S]*)/);
+      if (titleMatch) finalTitle = titleMatch[1].replace(/[*"']/g, '').trim();
+      if (summaryMatch) finalSummary = summaryMatch[1].trim();
+    }
+    
+    const now = Date.now();
+    if (finalTitle) {
+      await db.prepare('UPDATE notebooks SET title = ?, description = ?, updated_at = ? WHERE id = ?').run(finalTitle, finalSummary, now, req.params.id);
+    } else {
+      await db.prepare('UPDATE notebooks SET description = ?, updated_at = ? WHERE id = ?').run(finalSummary, now, req.params.id);
+    }
+    
+    res.json({ summary: finalSummary, title: finalTitle || notebook?.title });
+  } catch (e) {
+    console.error('[AI Summary Error]:', e);
+    res.status(500).json({ error: 'Summary generation failed' });
   }
 });
 
@@ -572,8 +704,9 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
     let content = '';
     if (mimetype === 'application/pdf') {
        try {
-         const data = await pdf(fileBuffer);
-         content = cleanExtractedText(data.text);
+         const parser = new pdf.PDFParse({ data: fileBuffer });
+         const result = await parser.getText();
+         content = cleanExtractedText(result.text);
          // Fallback if PDF text extraction returns almost nothing (scanned PDF)
          if (content.length < 10) {
            content = "[Scanned PDF detected - Text layer missing or unreadable]";
@@ -612,6 +745,81 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req: an
   }
 });
 
+app.post('/api/scrape', authenticateToken, async (req: any, res) => {
+  const { url } = req.body;
+  try {
+    const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const $ = cheerio.load(response.data);
+    
+    // Clean up unwanted tags
+    $('script, style, nav, footer, header, ads').remove();
+    
+    const title = $('title').text() || $('h1').first().text() || url;
+    let content = $('article').text() || $('main').text() || $('body').text();
+    
+    // Basic cleaning of whitespace
+    content = content.replace(/\s+/g, ' ').trim();
+    
+    res.json({ title, content });
+  } catch (e) {
+    res.status(500).json({ error: 'Scraping failed' });
+  }
+});
+
+app.put('/api/settings', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.sendStatus(403);
+  const settings = req.body;
+  const now = Date.now();
+  try {
+    for (const [camelKey, value] of Object.entries(settings)) {
+      const key = camelToSnake(camelKey);
+      await db.prepare('INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at')
+        .run(key, String(value), now);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update global identity' });
+  }
+});
+
+app.put('/api/auth/profile', authenticateToken, async (req: any, res) => {
+  const { name, avatarUrl } = req.body;
+  const updates: string[] = [];
+  const params: any[] = [];
+  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+  if (avatarUrl !== undefined) { updates.push('avatar_url = ?'); params.push(avatarUrl); }
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  params.push(req.user.id);
+  await db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  res.json({ success: true });
+});
+
+// ═══════════════════════════════════════════════════════════
+// DEBUG DIAGNOSTICS (Temporary)
+// ═══════════════════════════════════════════════════════════
+
+app.get('/api/debug/db-diag', async (req, res) => {
+  try {
+    await ensureDb();
+    const adminCheck = await db.prepare('SELECT email, role FROM users WHERE role = ?').get('admin') as any;
+    const settingsCount = await db.prepare('SELECT COUNT(*) as count FROM platform_settings').get() as any;
+    
+    res.json({
+      status: 'Online',
+      database: 'Connected',
+      diagnostics: {
+        adminExists: !!adminCheck,
+        adminEmail: adminCheck?.email || 'None',
+        settingsCount: settingsCount?.count || 0,
+        nodeEnv: process.env.NODE_ENV,
+        hasVercelEnv: !!process.env.VERCEL
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ status: 'Error', error: err.message, stack: err.stack });
+  }
+});
+
 
 // ═══════════════════════════════════════════════════════════
 // VITE & PRODUCTION SERVING
@@ -644,31 +852,6 @@ if (!isProd) {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// DEBUG DIAGNOSTICS (Temporary)
-// ═══════════════════════════════════════════════════════════
-
-app.get('/api/debug/db-diag', async (req, res) => {
-  try {
-    await ensureDb();
-    const adminCheck = await db.prepare('SELECT email, role FROM users WHERE role = ?').get('admin') as any;
-    const settingsCount = await db.prepare('SELECT COUNT(*) as count FROM platform_settings').get() as any;
-    
-    res.json({
-      status: 'Online',
-      database: 'Connected',
-      diagnostics: {
-        adminExists: !!adminCheck,
-        adminEmail: adminCheck?.email || 'None',
-        settingsCount: settingsCount?.count || 0,
-        nodeEnv: process.env.NODE_ENV,
-        hasVercelEnv: !!process.env.VERCEL
-      }
-    });
-  } catch (err: any) {
-    res.status(500).json({ status: 'Error', error: err.message, stack: err.stack });
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 if (!process.env.VERCEL) {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Notebook, Source } from '../types';
 import { useStore } from '../store';
 import { Send, Brain, Globe, Loader2, Sparkles, Trash2, Volume2, VolumeX, Bookmark, X, Plus, Mic, MicOff, Clock, Copy, Check, ThumbsUp, ThumbsDown, FileText, ListCollapse, MessageSquare, Download, StopCircle, Speech, FileSpreadsheet, Edit3 } from 'lucide-react';
@@ -114,7 +114,7 @@ function CitedMarkdown({ content, sources, onCitationClick }: {
         ),
         strong: ({ children }) => (
           <strong className="font-extrabold text-brand-primary">
-            {children}
+            {processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)}
           </strong>
         ),
         code: ({ children, className }) => {
@@ -191,7 +191,7 @@ function CitedMarkdown({ content, sources, onCitationClick }: {
         ),
         em: ({ children }) => (
           <em className="text-neutral-500 dark:text-neutral-400 not-italic text-[13.5px] font-medium">
-            ({children})
+            ({processChildren(children, sources, proxiedOnCitationClick, handleHover, handleLeave)})
           </em>
         ),
       }}
@@ -274,6 +274,11 @@ function processChildren(
       }
       return node;
     }
+    if (React.isValidElement(node) && node.props.children) {
+      return React.cloneElement(node as React.ReactElement, {
+        children: processChildren(node.props.children, sources, onCitationClick, onCitationHover, onCitationLeave)
+      } as any);
+    }
     return node;
   };
 
@@ -296,7 +301,8 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
     updateNote, 
     masterSources,
     setHighlightedSourceId,
-    setPreviewSourceId
+    setPreviewSourceId,
+    generateNotebookSummary
   } = useStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -618,6 +624,9 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
       
       // We'll use the last message id approach in render
       setInferenceTimings(prev => ({ ...prev, latest: elapsed }));
+
+      // Dynamic Summary Update: Refine the notebook research brief based on the new context
+      generateNotebookSummary(notebook.id);
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('Response aborted by user.');
@@ -675,6 +684,9 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
       
       setStreamingContent(null);
       await addChatMessage(notebook.id, { role: 'model', content: response });
+      
+      // Dynamic Summary Update
+      generateNotebookSummary(notebook.id);
     } catch (error) {
       console.error('Failed to update and regenerate:', error);
     } finally {
@@ -789,6 +801,53 @@ export default function ChatArea({ notebook }: { notebook: Notebook }) {
               style={{ backgroundColor: `rgba(255, 255, 255, ${platformSettings.chatBackgroundTransparency || 0.1})` }}
             />
           )}
+          {notebook.description && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="max-w-3xl mx-auto mb-10"
+            >
+              <div className="bg-gradient-to-br from-blue-50/50 to-purple-50/50 dark:from-blue-900/10 dark:to-purple-900/10 border border-blue-100 dark:border-brand-primary/20 rounded-[2rem] p-6 shadow-sm relative overflow-hidden group">
+                {/* Decorative Elements */}
+                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                  <Brain size={64} className="text-brand-primary" />
+                </div>
+                
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-brand-primary text-white rounded-lg">
+                    <Sparkles size={14} />
+                  </div>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-primary">Dynamic Research Brief</h3>
+                  <div className="flex-1 h-px bg-blue-100 dark:bg-brand-primary/20 ml-2" />
+                </div>
+                
+                <div className="prose-override-summary text-[14px] leading-[1.8] text-neutral-700 dark:text-neutral-300">
+                  <CitedMarkdown 
+                    content={notebook.description} 
+                    sources={[...notebook.sources, ...(masterSources || [])]}
+                    onCitationClick={handleCitationClick}
+                  />
+                </div>
+                
+                <div className="mt-4 flex items-center gap-4">
+                   <div className="flex -space-x-2">
+                     {notebook.sources.slice(0, 3).map((s, i) => (
+                       <div key={s.id} className="w-6 h-6 rounded-full bg-white dark:bg-neutral-800 border-2 border-white dark:border-neutral-900 flex items-center justify-center text-[8px] font-bold shadow-sm" title={s.title}>
+                         {s.title[0].toUpperCase()}
+                       </div>
+                     ))}
+                     {notebook.sources.length > 3 && (
+                       <div className="w-6 h-6 rounded-full bg-neutral-100 dark:bg-neutral-800 border-2 border-white dark:border-neutral-900 flex items-center justify-center text-[8px] font-bold shadow-sm text-neutral-400">
+                         +{notebook.sources.length - 3}
+                       </div>
+                     )}
+                   </div>
+                   <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Synthesized from {notebook.sources.length} intelligence sources</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <AnimatePresence mode="popLayout">
             {notebook.chatHistory.length === 0 ? (
             <motion.div 

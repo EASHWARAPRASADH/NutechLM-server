@@ -153,11 +153,14 @@ FOLLOW-UP QUESTIONS:`;
 }
 
 export async function generateSourceSummary(title: string, content: string): Promise<string> {
-  const prompt = `Provide a short, punchy, and highly precise executive summary of this document: "${title}". 
-Limit the response to exactly 3-4 high-impact bullet points covering only the most essential information. 
-Avoid introductory filler. Respond ONLY with the bullet points.
+  const prompt = `Provide a premium executive summary of "${title}". 
+Structure the response with:
+1. # Executive Synopsis (1-2 sentences)
+2. # Critical Intelligence (Exactly 3 high-impact bullet points)
+3. # Research Trajectory (One sentence on what to investigate next)
 
-DOCUMENT CONTENT:
+Limit filler. Stay strictly professional.
+DOCUMENT:
 ${content.substring(0, 10000)}`;
   
   return generateChatResponse(prompt, [], []);

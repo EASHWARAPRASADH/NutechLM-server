@@ -10,9 +10,7 @@ import Footer from './Footer';
 export default function Dashboard() {
   const { notebooks, createNotebook, updateNotebook, deleteNotebook, currentUser, isGuest, logout, platformSettings } = useStore();
   const navigate = useNavigate();
-  const [isCreating, setIsCreating] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'updated' | 'title' | 'sources'>('updated');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -32,12 +30,13 @@ export default function Dashboard() {
       });
   }, [notebooks, searchTerm, sortBy]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    await createNotebook(newTitle.trim());
-    setNewTitle('');
-    setIsCreating(false);
+  const handleCreate = async () => {
+    if (isGuest) {
+      alert("Sign in to provision your own research assets.");
+      return;
+    }
+    const id = await createNotebook();
+    navigate(`/notebook/${id}`);
   };
 
   return (
@@ -144,7 +143,7 @@ export default function Dashboard() {
                 </button>
               )}
               <button 
-                onClick={() => isGuest ? alert("Sign in to provision your own research assets.") : setIsCreating(true)}
+                onClick={handleCreate}
                 className={`px-8 py-4 ${isGuest ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed opacity-50' : 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-2xl'} rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl flex items-center gap-3 shrink-0`}
               >
                 <Plus size={18} />
@@ -186,48 +185,6 @@ export default function Dashboard() {
         </header>
 
       <AnimatePresence>
-        {isCreating && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
-          >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }} 
-              animate={{ scale: 1, opacity: 1, y: 0 }} 
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
-              className="bg-white dark:bg-neutral-900 p-6 rounded-3xl shadow-2xl w-full max-w-md border border-neutral-100 dark:border-neutral-800"
-            >
-              <h2 className="text-xl font-medium mb-4 text-neutral-900 dark:text-white">Create new notebook</h2>
-              <form onSubmit={handleCreate}>
-                <input
-                  type="text"
-                  autoFocus
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Notebook title..."
-                  className="w-full border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 mb-6 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-neutral-50/50 dark:bg-neutral-800/50 text-neutral-900 dark:text-white"
-                />
-                <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreating(false)}
-                    className="px-4 py-2 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white font-medium transition-colors rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!newTitle.trim()}
-                    className="bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 px-6 py-2 rounded-xl disabled:opacity-50 font-medium hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors shadow-sm"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
 
         {isProfileOpen && !isGuest && currentUser && (
           <motion.div 
